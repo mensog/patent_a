@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    --background: 220 14% 96%;
+    --foreground: 220 20% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 14%;
+
+    --primary: 220 65% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 93%;
+    --secondary-foreground: 220 20% 25%;
+
+    --muted: 220 12% 94%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 220 14% 91%;
+    --accent-foreground: 220 20% 18%;
+
+    --destructive: 4 72% 46%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 56% 34%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 32 95% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 205 78% 42%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 220 14% 89%;
+    --input: 220 14% 89%;
+    --ring: 220 65% 40%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 222 30% 14%;
+    --sidebar-foreground: 220 14% 70%;
+    --sidebar-primary: 0 0% 98%;
+    --sidebar-primary-foreground: 222 30% 14%;
+    --sidebar-accent: 222 24% 19%;
+    --sidebar-accent-foreground: 220 14% 88%;
+    --sidebar-border: 222 20% 22%;
+    --sidebar-ring: 220 65% 48%;
+    --sidebar-muted: 220 14% 40%;
+
+    --topbar-height: 3.25rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .kpi-card {
+    @apply bg-card rounded-lg border p-5 shadow-[0_1px_3px_0_rgb(0_0_0/0.04)] transition-shadow;
+  }
+  .section-title {
+    @apply text-[13px] font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+  .page-title {
+    @apply text-xl font-semibold text-foreground tracking-tight;
+  }
+  .table-header {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-muted-foreground;
+  }
+  .card-panel {
+    @apply rounded-lg border bg-card shadow-[0_1px_3px_0_rgb(0_0_0/0.04)];
+  }
+}
