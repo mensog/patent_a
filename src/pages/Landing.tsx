@@ -25,11 +25,11 @@ export default function Landing() {
         <div className="flex items-center gap-6">
           <a href="#benefits" className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">Возможности</a>
           <a href="#workflow" className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">Как это работает</a>
-          <Link to="/buyer">
-            <Button size="sm" className="text-xs h-8">Кабинет покупателя</Button>
+          <Link to="/login">
+            <Button size="sm" className="text-xs h-8">Войти</Button>
           </Link>
-          <Link to="/supplier">
-            <Button size="sm" variant="outline" className="text-xs h-8">Кабинет поставщика</Button>
+          <Link to="/signup">
+            <Button size="sm" variant="outline" className="text-xs h-8">Регистрация</Button>
           </Link>
         </div>
       </nav>
@@ -46,14 +46,14 @@ export default function Landing() {
           EcaMarket — платформа для промышленных закупок. Запросы, сравнение КП, управление заказами, отгрузки и документооборот — всё в одной системе.
         </p>
         <div className="mt-8 flex items-center justify-center gap-3">
-          <Link to="/buyer">
+          <Link to="/signup">
             <Button className="gap-2 text-xs h-9">
-              Начать закупки <ArrowRight className="h-3.5 w-3.5" />
+              Начать работу <ArrowRight className="h-3.5 w-3.5" />
             </Button>
           </Link>
-          <Link to="/supplier">
+          <Link to="/login">
             <Button variant="outline" className="text-xs h-9">
-              Для поставщиков
+              Войти в кабинет
             </Button>
           </Link>
         </div>
