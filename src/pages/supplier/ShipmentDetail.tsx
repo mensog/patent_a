@@ -5,10 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Truck, ArrowLeft, MapPin, User, Printer } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
+import { formatDate } from '@/lib/app-utils';
+import type { ShipmentItemWithOrderItem, ShipmentStatus, ShipmentWithOrder } from '@/types/app';
 
 export default function ShipmentDetail() {
   const { id } = useParams<{ id: string }>();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: shipment, isLoading } = useQuery({
     queryKey: ['shipment', id],
@@ -19,7 +24,7 @@ export default function ShipmentDetail() {
         .eq('id', id!)
         .single();
       if (error) throw error;
-      return data;
+      return data as ShipmentWithOrder;
     },
     enabled: !!id,
   });
@@ -32,17 +37,62 @@ export default function ShipmentDetail() {
         .select('*, order_items!shipment_items_order_item_id_fkey(material_name, unit)')
         .eq('shipment_id', id!);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as ShipmentItemWithOrderItem[];
     },
     enabled: !!id,
   });
 
-  const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
+  const advanceShipmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!shipment) {
+        throw new Error('Отгрузка не загружена.');
+      }
+
+      let nextStatus: ShipmentStatus = shipment.status;
+      const patch: Partial<ShipmentWithOrder> = {};
+
+      if (shipment.status === 'planned' || shipment.status === 'ready') {
+        nextStatus = 'in_transit';
+        patch.shipped_at = new Date().toISOString();
+      } else if (shipment.status === 'in_transit') {
+        nextStatus = 'delivered';
+        patch.delivered_at = new Date().toISOString();
+      } else {
+        throw new Error('Для текущего статуса действие недоступно.');
+      }
+
+      const { error } = await supabase
+        .from('shipments')
+        .update({ status: nextStatus, shipped_at: patch.shipped_at ?? shipment.shipped_at, delivered_at: patch.delivered_at ?? shipment.delivered_at })
+        .eq('id', shipment.id);
+
+      if (error) {
+        throw error;
+      }
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['shipment', id] }),
+        queryClient.invalidateQueries({ queryKey: ['shipment-items', id] }),
+        queryClient.invalidateQueries({ queryKey: ['supplier-shipments'] }),
+        queryClient.invalidateQueries({ queryKey: ['supplier-shipments-list'] }),
+        queryClient.invalidateQueries({ queryKey: ['route-shipments'] }),
+      ]);
+      toast({ title: 'Статус отгрузки обновлён' });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Не удалось обновить отгрузку',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
 
   if (isLoading) return <DashboardLayout mode="supplier"><p className="py-16 text-center text-sm text-muted-foreground">Загрузка…</p></DashboardLayout>;
   if (!shipment) return <DashboardLayout mode="supplier"><p className="py-16 text-center text-sm text-muted-foreground">Отгрузка не найдена</p></DashboardLayout>;
 
-  const order = (shipment as any).orders;
+  const order = shipment.orders;
   const statusOrder = ['planned', 'ready', 'in_transit', 'delivered'];
   const currentIdx = statusOrder.indexOf(shipment.status);
   const steps = [
@@ -51,13 +101,16 @@ export default function ShipmentDetail() {
     { label: 'В пути', done: currentIdx >= 2, active: shipment.status === 'in_transit' },
     { label: 'Доставлено', done: currentIdx >= 3, active: shipment.status === 'delivered' },
   ];
+  const canAdvance = shipment.status === 'planned' || shipment.status === 'ready' || shipment.status === 'in_transit';
+  const actionLabel =
+    shipment.status === 'in_transit' ? 'Подтвердить доставку' : 'Подтвердить отгрузку';
 
   return (
     <DashboardLayout mode="supplier">
       <div className="space-y-6">
         <div>
-          <Link to="/supplier" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors mb-2">
-            <ArrowLeft className="h-3 w-3" /> Обзор
+          <Link to="/supplier/shipments" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors mb-2">
+            <ArrowLeft className="h-3 w-3" /> Все отгрузки
           </Link>
           <div className="flex items-center justify-between">
             <div>
@@ -72,8 +125,13 @@ export default function ShipmentDetail() {
               <Button size="sm" variant="outline" className="text-xs h-8 gap-1">
                 <Printer className="h-3 w-3" /> Печать ТТН
               </Button>
-              <Button size="sm" className="text-xs h-8 gap-1">
-                <Truck className="h-3 w-3" /> Подтвердить отгрузку
+              <Button
+                size="sm"
+                className="text-xs h-8 gap-1"
+                disabled={!canAdvance || advanceShipmentMutation.isPending}
+                onClick={() => advanceShipmentMutation.mutate()}
+              >
+                <Truck className="h-3 w-3" /> {advanceShipmentMutation.isPending ? 'Сохранение…' : actionLabel}
               </Button>
             </div>
           </div>
@@ -117,7 +175,7 @@ export default function ShipmentDetail() {
               </div>
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Дата доставки</p>
-                <p className="mt-0.5 text-sm font-semibold">{fmtDate(shipment.planned_date)}</p>
+                <p className="mt-0.5 text-sm font-semibold">{formatDate(shipment.planned_date)}</p>
               </div>
             </div>
           </div>
@@ -144,14 +202,14 @@ export default function ShipmentDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {shipmentItems.map(it => (
-                    <tr key={it.id} className="border-b last:border-0">
-                      <td className="px-4 py-3 font-medium">{(it as any).order_items?.material_name ?? '—'}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{it.quantity} {(it as any).order_items?.unit ?? ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                {shipmentItems.map(it => (
+                  <tr key={it.id} className="border-b last:border-0">
+                      <td className="px-4 py-3 font-medium">{it.order_items?.material_name ?? '—'}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{it.quantity} {it.order_items?.unit ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
             )}
           </div>
         </div>

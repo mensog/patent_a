@@ -5,9 +5,15 @@ import { ArrowLeft, Truck, MapPin } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
+import { formatCurrency, formatDate, getDashboardMode } from '@/lib/app-utils';
+import type { OrderItem, OrderWithCompanies, Shipment } from '@/types/app';
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
+  const { profile } = useAuth();
+  const mode = getDashboardMode(profile?.role);
+  const ordersListHref = mode === 'supplier' ? '/supplier' : '/buyer/orders';
 
   const { data: order, isLoading: orderLoading } = useQuery({
     queryKey: ['order', id],
@@ -18,7 +24,7 @@ export default function OrderDetail() {
         .eq('id', id!)
         .single();
       if (error) throw error;
-      return data;
+      return data as OrderWithCompanies;
     },
     enabled: !!id,
   });
@@ -31,7 +37,7 @@ export default function OrderDetail() {
         .select('*')
         .eq('order_id', id!);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as OrderItem[];
     },
     enabled: !!id,
   });
@@ -45,15 +51,13 @@ export default function OrderDetail() {
         .eq('order_id', id!)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as Shipment[];
     },
     enabled: !!id,
   });
 
-  const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
-
-  if (orderLoading) return <DashboardLayout mode="buyer"><p className="py-16 text-center text-sm text-muted-foreground">Загрузка…</p></DashboardLayout>;
-  if (!order) return <DashboardLayout mode="buyer"><p className="py-16 text-center text-sm text-muted-foreground">Заказ не найден</p></DashboardLayout>;
+  if (orderLoading) return <DashboardLayout mode={mode}><p className="py-16 text-center text-sm text-muted-foreground">Загрузка…</p></DashboardLayout>;
+  if (!order) return <DashboardLayout mode={mode}><p className="py-16 text-center text-sm text-muted-foreground">Заказ не найден</p></DashboardLayout>;
 
   const statusSteps = [
     { label: 'Подтверждён', done: ['confirmed', 'in_progress', 'shipped', 'received', 'closed'].includes(order.status), active: order.status === 'confirmed' },
@@ -63,17 +67,17 @@ export default function OrderDetail() {
   ];
 
   return (
-    <DashboardLayout mode="buyer">
+    <DashboardLayout mode={mode}>
       <div className="space-y-6">
         <div>
-          <Link to="/buyer" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors mb-2">
-            <ArrowLeft className="h-3 w-3" /> Обзор
+          <Link to={ordersListHref} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors mb-2">
+            <ArrowLeft className="h-3 w-3" /> {mode === 'supplier' ? 'К отгрузкам и заказам' : 'К заказам'}
           </Link>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="page-title">Заказ {order.order_number ? `#${order.order_number}` : ''}</h1>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                {(order as any).companies?.name ?? '—'} · создан {fmtDate(order.created_at)}
+                {order.companies?.name ?? '—'} · создан {formatDate(order.created_at)}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -116,15 +120,15 @@ export default function OrderDetail() {
                           <tr key={it.id} className="border-b last:border-0">
                             <td className="px-4 py-3 font-medium">{it.material_name}</td>
                             <td className="px-4 py-3 text-right text-muted-foreground tabular-nums">{it.quantity} {it.unit}</td>
-                            <td className="px-4 py-3 text-right tabular-nums">{Number(it.price).toLocaleString('ru-RU')} ₽</td>
-                            <td className="px-4 py-3 text-right tabular-nums font-semibold">{Number(it.line_total).toLocaleString('ru-RU')} ₽</td>
+                            <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(it.price)}</td>
+                            <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatCurrency(it.line_total)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                     <div className="mt-4 flex items-center justify-between border-t pt-4">
                       <span className="text-xs text-muted-foreground">Итого с НДС</span>
-                      <span className="text-xl font-bold tabular-nums">{Number(order.total_amount).toLocaleString('ru-RU')} ₽</span>
+                      <span className="text-xl font-bold tabular-nums">{formatCurrency(order.total_amount)}</span>
                     </div>
                   </>
                 )}
@@ -145,7 +149,7 @@ export default function OrderDetail() {
                         {s.driver_name && <p className="text-xs text-muted-foreground mt-0.5">Водитель: {s.driver_name}</p>}
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">{fmtDate(s.planned_date)}</span>
+                        <span className="text-xs text-muted-foreground">{formatDate(s.planned_date)}</span>
                         <StatusBadge status={s.status} />
                       </div>
                     </div>
@@ -169,10 +173,10 @@ export default function OrderDetail() {
             <div className="card-panel p-5">
               <h3 className="section-title mb-3">Финансы</h3>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Без НДС</span><span className="tabular-nums">{Number(order.amount_without_vat).toLocaleString('ru-RU')} ₽</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">НДС</span><span className="tabular-nums">{Number(order.vat_amount).toLocaleString('ru-RU')} ₽</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Доставка</span><span className="tabular-nums">{Number(order.delivery_cost).toLocaleString('ru-RU')} ₽</span></div>
-                <div className="flex justify-between border-t pt-2 font-semibold"><span>Итого</span><span className="tabular-nums">{Number(order.total_amount).toLocaleString('ru-RU')} ₽</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Без НДС</span><span className="tabular-nums">{formatCurrency(order.amount_without_vat)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">НДС</span><span className="tabular-nums">{formatCurrency(order.vat_amount)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Доставка</span><span className="tabular-nums">{formatCurrency(order.delivery_cost)}</span></div>
+                <div className="flex justify-between border-t pt-2 font-semibold"><span>Итого</span><span className="tabular-nums">{formatCurrency(order.total_amount)}</span></div>
               </div>
             </div>
           </div>

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { Topbar } from './Topbar';
 import {
   LayoutDashboard, Search, FileText, ShoppingCart, Truck,
-  Package, Upload, Map, ArrowLeftRight, ChevronLeft, ChevronRight
+  Package, Upload, Map, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -18,15 +18,15 @@ const buyerNav: NavItem[] = [
   { label: 'Обзор', to: '/buyer', icon: <LayoutDashboard className="h-4 w-4" /> },
   { label: 'Каталог', to: '/buyer/catalog', icon: <Search className="h-4 w-4" /> },
   { label: 'Запросы (RFQ)', to: '/buyer/rfq', icon: <FileText className="h-4 w-4" /> },
-  { label: 'Заказы', to: '/buyer/orders/1', icon: <ShoppingCart className="h-4 w-4" /> },
+  { label: 'Заказы', to: '/buyer/orders', icon: <ShoppingCart className="h-4 w-4" /> },
 ];
 
 const supplierNav: NavItem[] = [
   { label: 'Обзор', to: '/supplier', icon: <LayoutDashboard className="h-4 w-4" /> },
   { label: 'Предложения', to: '/supplier/offers', icon: <Package className="h-4 w-4" /> },
   { label: 'Импорт прайса', to: '/supplier/import', icon: <Upload className="h-4 w-4" /> },
-  { label: 'Запросы (RFQ)', to: '/supplier/rfq/1', icon: <FileText className="h-4 w-4" /> },
-  { label: 'Отгрузки', to: '/supplier/shipments/1', icon: <Truck className="h-4 w-4" /> },
+  { label: 'Запросы (RFQ)', to: '/supplier/rfq', icon: <FileText className="h-4 w-4" /> },
+  { label: 'Отгрузки', to: '/supplier/shipments', icon: <Truck className="h-4 w-4" /> },
   { label: 'Маршруты', to: '/supplier/routes', icon: <Map className="h-4 w-4" /> },
 ];
 
@@ -83,16 +83,6 @@ export function DashboardLayout({ children, mode }: { children: ReactNode; mode:
           })}
         </nav>
 
-        {/* Switch workspace */}
-        <div className="border-t border-sidebar-border p-2">
-          <Link
-            to={mode === 'buyer' ? '/supplier' : '/buyer'}
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-[11px] font-medium text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-          >
-            <ArrowLeftRight className="h-3.5 w-3.5" />
-            {!collapsed && <span>{mode === 'buyer' ? 'Кабинет поставщика' : 'Кабинет покупателя'}</span>}
-          </Link>
-        </div>
       </aside>
 
       <div className="flex flex-1 flex-col min-w-0">

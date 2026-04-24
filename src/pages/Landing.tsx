@@ -63,7 +63,7 @@ export default function Landing() {
         <div className="grid grid-cols-3 gap-5">
           {[
             { title: 'Каталог материалов', desc: 'Металлопрокат, химия, стройматериалы — 50 000+ позиций от 1 200 поставщиков с ГОСТ и сертификатами', link: '/buyer/catalog' },
-            { title: 'Сравнение КП', desc: 'До 10 предложений на один запрос. Табличное сравнение цен, сроков, остатков и условий НДС', link: '/buyer/rfq/1' },
+            { title: 'Сравнение КП', desc: 'До 10 предложений на один запрос. Табличное сравнение цен, сроков, остатков и условий НДС', link: '/buyer/rfq' },
             { title: 'Панель поставщика', desc: 'Управление прайсами, ответы на RFQ, контроль отгрузок и планирование маршрутов доставки', link: '/supplier' },
           ].map((c, i) => (
             <Link key={i} to={c.link} className="group card-panel p-6 hover:shadow-md transition-shadow">

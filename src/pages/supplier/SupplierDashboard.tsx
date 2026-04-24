@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { formatCurrency, formatDate } from '@/lib/app-utils';
 import type { KPI } from '@/data/mock';
+import type { CompanyPreview, ShipmentWithOrder, SupplierOfferWithMaterial, SupplierRfqListItem } from '@/types/app';
 
 export default function SupplierDashboard() {
   const { profile } = useAuth();
@@ -30,7 +32,7 @@ export default function SupplierDashboard() {
         .order('created_at', { ascending: false })
         .limit(5);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as SupplierRfqListItem[];
     },
     enabled: !!companyId,
   });
@@ -46,7 +48,7 @@ export default function SupplierDashboard() {
         .order('created_at', { ascending: false })
         .limit(5);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as ShipmentWithOrder[];
     },
     enabled: !!companyId,
   });
@@ -62,7 +64,7 @@ export default function SupplierDashboard() {
         .order('updated_at', { ascending: false })
         .limit(4);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as SupplierOfferWithMaterial[];
     },
     enabled: !!companyId,
   });
@@ -71,8 +73,9 @@ export default function SupplierDashboard() {
     queryKey: ['my-company', companyId],
     queryFn: async () => {
       if (!companyId) return null;
-      const { data } = await supabase.from('companies').select('name, inn').eq('id', companyId).single();
-      return data;
+      const { data, error } = await supabase.from('companies').select('id, name, inn, type').eq('id', companyId).single();
+      if (error) throw error;
+      return data as CompanyPreview;
     },
     enabled: !!companyId,
   });
@@ -82,8 +85,6 @@ export default function SupplierDashboard() {
     { label: 'Отгрузки', value: String(shipments.length), changeType: 'neutral' },
     { label: 'Предложений', value: String(offers.length), changeType: 'neutral' },
   ];
-
-  const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
   const loading = rfqLoading || shipmentsLoading;
 
   return (
@@ -133,7 +134,7 @@ export default function SupplierDashboard() {
                   </thead>
                   <tbody>
                     {shipments.map(s => {
-                      const order = (s as any).orders;
+                      const order = s.orders;
                       return (
                         <tr key={s.id} className="border-b last:border-0 hover:bg-muted/40 transition-colors">
                           <td className="px-4 py-3">
@@ -142,7 +143,7 @@ export default function SupplierDashboard() {
                             </Link>
                           </td>
                           <td className="px-4 py-3 font-medium">{order?.companies?.name ?? '—'}</td>
-                          <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(s.planned_date)}</td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground">{formatDate(s.planned_date)}</td>
                           <td className="px-4 py-3 text-center"><StatusBadge status={s.status} /></td>
                         </tr>
                       );
@@ -168,11 +169,11 @@ export default function SupplierDashboard() {
                 offers.map(o => (
                   <div key={o.id} className="flex items-center justify-between rounded-md border p-3 hover:bg-muted/40 transition-colors">
                     <div>
-                      <p className="text-sm font-medium">{(o as any).materials?.name ?? '—'}</p>
+                      <p className="text-sm font-medium">{o.materials?.name ?? '—'}</p>
                       <p className="text-xs text-muted-foreground">Остаток: {o.stock ?? 0}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold tabular-nums">{Number(o.price).toLocaleString('ru-RU')} ₽</p>
+                      <p className="text-sm font-semibold tabular-nums">{formatCurrency(o.price)}</p>
                       <span className={`inline-flex h-1.5 w-1.5 rounded-full ${o.is_active ? 'bg-success' : 'bg-muted-foreground'}`} />
                     </div>
                   </div>

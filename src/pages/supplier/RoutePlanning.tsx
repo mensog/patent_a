@@ -1,14 +1,20 @@
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/StatusBadge';
-import { MapPin, Clock, Truck, Navigation, Zap, Weight } from 'lucide-react';
+import { Clock, Truck, Navigation, Zap } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { formatDate } from '@/lib/app-utils';
+import type { ShipmentWithOrder } from '@/types/app';
 
 export default function RoutePlanning() {
   const { profile } = useAuth();
+  const { toast } = useToast();
   const companyId = profile?.company_id;
+  const [optimized, setOptimized] = useState(false);
 
   const { data: shipments = [], isLoading } = useQuery({
     queryKey: ['route-shipments', companyId],
@@ -21,12 +27,27 @@ export default function RoutePlanning() {
         .in('status', ['planned', 'ready', 'in_transit'])
         .order('planned_date', { ascending: true });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as ShipmentWithOrder[];
     },
     enabled: !!companyId,
   });
 
-  const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
+  const displayShipments = useMemo(() => {
+    if (!optimized) {
+      return shipments;
+    }
+
+    const priority = { ready: 0, planned: 1, in_transit: 2 } as const;
+
+    return [...shipments].sort((left, right) => {
+      const statusDiff = priority[left.status as keyof typeof priority] - priority[right.status as keyof typeof priority];
+      if (statusDiff !== 0) return statusDiff;
+
+      const leftDate = left.planned_date ? new Date(left.planned_date).getTime() : Number.MAX_SAFE_INTEGER;
+      const rightDate = right.planned_date ? new Date(right.planned_date).getTime() : Number.MAX_SAFE_INTEGER;
+      return leftDate - rightDate;
+    });
+  }, [optimized, shipments]);
 
   return (
     <DashboardLayout mode="supplier">
@@ -34,21 +55,29 @@ export default function RoutePlanning() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">Планирование маршрутов</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">{shipments.length} точек доставки</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">{displayShipments.length} точек доставки</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button className="gap-2 text-xs h-8"><Zap className="h-3.5 w-3.5" /> Оптимизировать маршрут</Button>
+            <Button
+              className="gap-2 text-xs h-8"
+              onClick={() => {
+                setOptimized(true);
+                toast({ title: 'Маршрут упорядочен по приоритету и дате доставки' });
+              }}
+            >
+              <Zap className="h-3.5 w-3.5" /> Оптимизировать маршрут
+            </Button>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="kpi-card">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Точек доставки</p>
-            <p className="mt-1.5 text-2xl font-bold tabular-nums">{shipments.length}</p>
+            <p className="mt-1.5 text-2xl font-bold tabular-nums">{displayShipments.length}</p>
           </div>
           <div className="kpi-card">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Активных отгрузок</p>
-            <p className="mt-1.5 text-2xl font-bold tabular-nums">{shipments.filter(s => s.status === 'in_transit').length}</p>
+            <p className="mt-1.5 text-2xl font-bold tabular-nums">{displayShipments.filter((shipment) => shipment.status === 'in_transit').length}</p>
           </div>
         </div>
 
@@ -76,11 +105,11 @@ export default function RoutePlanning() {
             <div className="p-5 space-y-2.5">
               {isLoading ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">Загрузка…</p>
-              ) : shipments.length === 0 ? (
+              ) : displayShipments.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">Нет запланированных отгрузок</p>
               ) : (
-                shipments.map((s, i) => {
-                  const order = (s as any).orders;
+                displayShipments.map((s, i) => {
+                  const order = s.orders;
                   return (
                     <div key={s.id} className="rounded-md border p-3.5 hover:bg-muted/40 transition-colors">
                       <div className="flex items-center justify-between mb-1.5">
@@ -93,7 +122,7 @@ export default function RoutePlanning() {
                       <p className="text-sm font-medium text-foreground leading-snug">{order?.companies?.name ?? '—'}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{order?.delivery_address ?? '—'}</p>
                       <div className="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground">
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {fmtDate(s.planned_date)}</span>
+                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {formatDate(s.planned_date)}</span>
                         {s.driver_name && <span className="flex items-center gap-1"><Truck className="h-3 w-3" /> {s.driver_name}</span>}
                       </div>
                     </div>

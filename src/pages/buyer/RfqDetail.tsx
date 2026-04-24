@@ -5,6 +5,8 @@ import { ArrowLeft, Download } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { formatCurrency, formatDate } from '@/lib/app-utils';
+import type { QuoteWithCompany, Rfq, RfqItemWithMaterial } from '@/types/app';
 
 export default function RfqDetail() {
   const { id } = useParams<{ id: string }>();
@@ -18,7 +20,7 @@ export default function RfqDetail() {
         .eq('id', id!)
         .single();
       if (error) throw error;
-      return data;
+      return data as Rfq;
     },
     enabled: !!id,
   });
@@ -31,7 +33,7 @@ export default function RfqDetail() {
         .select('*, materials!rfq_items_material_id_fkey(name)')
         .eq('rfq_id', id!);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as RfqItemWithMaterial[];
     },
     enabled: !!id,
   });
@@ -44,12 +46,10 @@ export default function RfqDetail() {
         .select('*, companies!quotes_supplier_company_id_fkey(name), quote_items(*)')
         .eq('rfq_id', id!);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as QuoteWithCompany[];
     },
     enabled: !!id,
   });
-
-  const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
 
   if (rfqLoading) return <DashboardLayout mode="buyer"><p className="py-16 text-center text-sm text-muted-foreground">Загрузка…</p></DashboardLayout>;
   if (!rfq) return <DashboardLayout mode="buyer"><p className="py-16 text-center text-sm text-muted-foreground">Запрос не найден</p></DashboardLayout>;
@@ -64,7 +64,7 @@ export default function RfqDetail() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="page-title">{rfq.title}</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">Создан {fmtDate(rfq.created_at)} · Дедлайн {fmtDate(rfq.needed_by)}</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">Создан {formatDate(rfq.created_at)} · Дедлайн {formatDate(rfq.needed_by)}</p>
             </div>
             <div className="flex items-center gap-2">
               <StatusBadge status={rfq.status} />
@@ -89,7 +89,7 @@ export default function RfqDetail() {
             <div className="kpi-card">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Мин. сумма КП</p>
               <p className="mt-1.5 text-xl font-bold tabular-nums text-success">
-                {Math.min(...quotes.map(q => Number(q.total_amount ?? 0))).toLocaleString('ru-RU')} ₽
+                {formatCurrency(Math.min(...quotes.map(q => Number(q.total_amount ?? 0))))}
               </p>
             </div>
           )}
@@ -124,7 +124,7 @@ export default function RfqDetail() {
                   {items.map((p, i) => (
                     <tr key={p.id} className="border-b last:border-0">
                       <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{i + 1}</td>
-                      <td className="px-4 py-3 font-medium">{p.material_name ?? (p as any).materials?.name ?? '—'}</td>
+                      <td className="px-4 py-3 font-medium">{p.material_name ?? p.materials?.name ?? '—'}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{p.quantity}</td>
                       <td className="px-4 py-3 text-muted-foreground">{p.unit}</td>
                     </tr>
@@ -156,14 +156,14 @@ export default function RfqDetail() {
                 <tbody>
                   {quotes.sort((a, b) => Number(a.total_amount ?? 0) - Number(b.total_amount ?? 0)).map(q => (
                     <tr key={q.id} className="border-b last:border-0 hover:bg-muted/40 transition-colors">
-                      <td className="px-4 py-3.5 font-semibold">{(q as any).companies?.name ?? '—'}</td>
+                      <td className="px-4 py-3.5 font-semibold">{q.companies?.name ?? '—'}</td>
                       <td className="px-4 py-3.5 text-right font-bold tabular-nums">
-                        {Number(q.total_amount ?? 0).toLocaleString('ru-RU')} ₽
+                        {formatCurrency(q.total_amount ?? 0)}
                       </td>
                       <td className="px-4 py-3.5 text-right tabular-nums text-muted-foreground">
-                        {Number(q.delivery_cost ?? 0).toLocaleString('ru-RU')} ₽
+                        {formatCurrency(q.delivery_cost ?? 0)}
                       </td>
-                      <td className="px-4 py-3.5 text-right text-xs text-muted-foreground">{fmtDate(q.valid_until)}</td>
+                      <td className="px-4 py-3.5 text-right text-xs text-muted-foreground">{formatDate(q.valid_until)}</td>
                       <td className="px-4 py-3.5 text-center"><StatusBadge status={q.status} /></td>
                     </tr>
                   ))}

@@ -6,7 +6,9 @@ import { ArrowRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { formatCurrency, formatDate } from '@/lib/app-utils';
 import type { KPI } from '@/data/mock';
+import type { BuyerOrderListItem, CompanyPreview } from '@/types/app';
 
 export default function BuyerDashboard() {
   const { profile } = useAuth();
@@ -40,7 +42,7 @@ export default function BuyerDashboard() {
         .order('created_at', { ascending: false })
         .limit(5);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as BuyerOrderListItem[];
     },
     enabled: !!companyId,
   });
@@ -49,8 +51,9 @@ export default function BuyerDashboard() {
     queryKey: ['my-company', companyId],
     queryFn: async () => {
       if (!companyId) return null;
-      const { data } = await supabase.from('companies').select('name, inn').eq('id', companyId).single();
-      return data;
+      const { data, error } = await supabase.from('companies').select('id, name, inn, type').eq('id', companyId).single();
+      if (error) throw error;
+      return data as CompanyPreview;
     },
     enabled: !!companyId,
   });
@@ -62,7 +65,6 @@ export default function BuyerDashboard() {
   ];
 
   const loading = rfqsLoading || ordersLoading;
-  const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ru-RU') : '—';
 
   return (
     <DashboardLayout mode="buyer">
@@ -106,7 +108,7 @@ export default function BuyerDashboard() {
                           <Link to={`/buyer/rfq/${r.id}`} className="text-sm font-medium text-foreground hover:text-primary transition-colors">{r.title}</Link>
                         </td>
                         <td className="py-3"><StatusBadge status={r.status} /></td>
-                        <td className="py-3 text-right text-xs text-muted-foreground">{fmtDate(r.needed_by)}</td>
+                        <td className="py-3 text-right text-xs text-muted-foreground">{formatDate(r.needed_by)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -134,11 +136,11 @@ export default function BuyerDashboard() {
                         Заказ {o.order_number ? `#${o.order_number}` : ''}
                       </span>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {(o as any).companies?.name ?? '—'}
+                        {o.companies?.name ?? '—'}
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-sm font-semibold tabular-nums">{Number(o.total_amount).toLocaleString('ru-RU')} ₽</span>
+                      <span className="text-sm font-semibold tabular-nums">{formatCurrency(o.total_amount)}</span>
                       <StatusBadge status={o.status} />
                     </div>
                   </Link>

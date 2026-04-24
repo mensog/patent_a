@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { getDefaultRouteForRole } from '@/lib/app-utils';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -15,10 +16,16 @@ export default function Login() {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (session && !loading && profile) {
-      const target = profile.role === 'supplier' ? '/supplier' : '/buyer';
-      navigate(target, { replace: true });
+    if (!session || loading) {
+      return;
     }
+
+    if (!profile || !profile.company_id) {
+      navigate('/setup', { replace: true });
+      return;
+    }
+
+    navigate(getDefaultRouteForRole(profile.role), { replace: true });
   }, [session, loading, profile, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -26,9 +33,12 @@ export default function Login() {
     setSubmitting(true);
     const { error } = await signIn(email, password);
     if (error) {
-      toast({ title: 'Ошибка входа', description: error.message, variant: 'destructive' });
+      toast({ title: 'Ошибка входа', description: error, variant: 'destructive' });
       setSubmitting(false);
+      return;
     }
+
+    setSubmitting(false);
   };
 
   return (

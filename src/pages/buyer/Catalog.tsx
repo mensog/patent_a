@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Search, ArrowRight, LayoutGrid, List } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import type { MaterialCategory, MaterialWithCategory } from '@/types/app';
 
 export default function Catalog() {
   const [cat, setCat] = useState('Все');
@@ -13,19 +14,21 @@ export default function Catalog() {
   const { data: categories = [] } = useQuery({
     queryKey: ['material-categories'],
     queryFn: async () => {
-      const { data } = await supabase.from('material_categories').select('id, name').order('name');
-      return data ?? [];
+      const { data, error } = await supabase.from('material_categories').select('id, name').order('name');
+      if (error) throw error;
+      return (data ?? []) as Pick<MaterialCategory, 'id' | 'name'>[];
     },
   });
 
   const { data: materials = [], isLoading } = useQuery({
     queryKey: ['materials'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('materials')
         .select('id, name, sku, unit, description, category_id, material_categories!materials_category_id_fkey(name)')
         .order('name');
-      return data ?? [];
+      if (error) throw error;
+      return (data ?? []) as MaterialWithCategory[];
     },
   });
 
@@ -100,7 +103,7 @@ export default function Catalog() {
                     </td>
                     <td className="px-5 py-3.5">
                       <span className="inline-flex rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                        {(m as any).material_categories?.name ?? '—'}
+                        {m.material_categories?.name ?? '—'}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground font-mono">{m.sku || '—'}</td>
@@ -129,7 +132,7 @@ export default function Catalog() {
               <Link key={m.id} to={`/buyer/material/${m.id}`} className="card-panel p-5 hover:shadow-md transition-shadow group">
                 <div className="flex items-start justify-between">
                   <span className="inline-flex rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {(m as any).material_categories?.name ?? '—'}
+                    {m.material_categories?.name ?? '—'}
                   </span>
                   <span className="text-[10px] font-mono text-muted-foreground">{m.sku}</span>
                 </div>

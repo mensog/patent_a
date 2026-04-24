@@ -10,6 +10,7 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [role, setRole] = useState<'buyer' | 'supplier'>('buyer');
   const [submitting, setSubmitting] = useState(false);
   const { signUp } = useAuth();
@@ -19,13 +20,16 @@ export default function Signup() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    const { error } = await signUp(email, password, fullName, role);
+    const { error } = await signUp(email, password, fullName, role, companyName);
     if (error) {
-      toast({ title: 'Ошибка регистрации', description: error.message, variant: 'destructive' });
+      toast({ title: 'Ошибка регистрации', description: error, variant: 'destructive' });
       setSubmitting(false);
       return;
     }
-    toast({ title: 'Регистрация успешна', description: 'Проверьте почту для подтверждения аккаунта.' });
+    toast({
+      title: 'Регистрация успешна',
+      description: 'Теперь войдите в аккаунт и завершите настройку рабочего пространства.',
+    });
     navigate('/login', { replace: true });
   };
 
@@ -44,6 +48,16 @@ export default function Signup() {
           <div className="space-y-1.5">
             <Label htmlFor="email" className="text-xs">Email</Label>
             <Input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@company.ru" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="companyName" className="text-xs">Компания</Label>
+            <Input
+              id="companyName"
+              value={companyName}
+              onChange={e => setCompanyName(e.target.value)}
+              required
+              placeholder="ООО Ромашка"
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="password" className="text-xs">Пароль</Label>

@@ -1,4 +1,4 @@
-import { Bell, Search, User, Settings, Building2, LogOut } from 'lucide-react';
+import { User, Settings, Building2, LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -8,6 +8,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { NotificationsPanel } from './NotificationsPanel';
+import { TopbarSearch } from './TopbarSearch';
 
 export function Topbar({ title }: { title?: string }) {
   const { profile, signOut } = useAuth();
@@ -26,14 +28,8 @@ export function Topbar({ title }: { title?: string }) {
         {title && <h1 className="text-sm font-semibold text-foreground">{title}</h1>}
       </div>
       <div className="flex items-center gap-1.5">
-        <div className="flex items-center rounded-md border bg-background px-3 py-1.5">
-          <Search className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
-          <input placeholder="Поиск материалов, поставщиков..." className="w-56 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
-        </div>
-        <button className="relative rounded-md p-2 hover:bg-accent transition-colors">
-          <Bell className="h-4 w-4 text-muted-foreground" />
-          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-destructive" />
-        </button>
+        <TopbarSearch />
+        <NotificationsPanel />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

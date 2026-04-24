@@ -1,9 +1,10 @@
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { StatusBadge } from '@/components/StatusBadge';
 import { ArrowLeft } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { formatCurrency } from '@/lib/app-utils';
+import type { MaterialWithCategory, SupplierOfferWithCompany } from '@/types/app';
 
 export default function MaterialDetail() {
   const { id } = useParams<{ id: string }>();
@@ -17,7 +18,7 @@ export default function MaterialDetail() {
         .eq('id', id!)
         .single();
       if (error) throw error;
-      return data;
+      return data as MaterialWithCategory;
     },
     enabled: !!id,
   });
@@ -32,7 +33,7 @@ export default function MaterialDetail() {
         .eq('is_active', true)
         .order('price', { ascending: true });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as SupplierOfferWithCompany[];
     },
     enabled: !!id,
   });
@@ -54,7 +55,7 @@ export default function MaterialDetail() {
           <h1 className="page-title">{material.name}</h1>
           <div className="mt-1.5 flex items-center gap-3 text-sm text-muted-foreground">
             <span className="inline-flex rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
-              {(material as any).material_categories?.name ?? '—'}
+              {material.material_categories?.name ?? '—'}
             </span>
             {material.sku && <span className="font-mono text-xs">{material.sku}</span>}
             <span>·</span>
@@ -108,12 +109,12 @@ export default function MaterialDetail() {
                           {idx + 1}
                         </div>
                         <div className="min-w-[200px]">
-                          <span className="text-sm font-semibold text-foreground">{(o as any).companies?.name ?? '—'}</span>
+                          <span className="text-sm font-semibold text-foreground">{o.companies?.name ?? '—'}</span>
                           {isBest && <span className="ml-2 rounded bg-success/10 px-1.5 py-0.5 text-[10px] font-bold text-success uppercase">Лучшая цена</span>}
                         </div>
                         <div className="text-right min-w-[120px]">
                           <span className={`text-lg font-bold tabular-nums ${isBest ? 'text-success' : 'text-foreground'}`}>
-                            {Number(o.price).toLocaleString('ru-RU')} ₽
+                            {formatCurrency(o.price)}
                           </span>
                           <p className="text-[10px] text-muted-foreground">НДС {o.vat_rate}%</p>
                         </div>
