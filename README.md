@@ -8,10 +8,13 @@ Demo-версия B2B-платформы закупок на `React + Vite + Sup
 
 - аутентификация через Supabase: `login / signup / logout / persistent session`
 - role-aware маршруты и отдельный setup шаг для новых аккаунтов без профиля/компании
-- buyer экраны: dashboard, catalog, material detail, RFQ list/detail, orders list/detail
+- buyer экраны: dashboard, catalog, material detail, RFQ list/detail, orders list/detail, shipment detail
 - supplier экраны: dashboard, offers CRUD, price import, RFQ list/detail + quote submit, shipments list/detail, route planning demo
 - topbar search
 - notifications panel с mark-as-read
+- buyer flow по RFQ: отклонение/принятие КП, автоматическое создание заказа и позиций заказа (один заказ на одно принятое КП)
+- supplier flow по заказу: создание отгрузки из заказа с автозаполнением shipment_items
+- интеллектуальный советник выбора поставщика в RFQ detail (скоринг цена/срок/надёжность)
 - profile/company settings
 
 ## Локальный запуск
@@ -59,6 +62,9 @@ npm run build
 Новая migration:
 
 - `supabase/migrations/20260413190000_demo_rls_and_helper_policies.sql`
+- `supabase/migrations/20260423110000_material_import_insert_policies.sql`
+- `supabase/migrations/20260427120000_quote_approval_order_shipment_policies.sql`
+- `supabase/migrations/20260427140000_order_quote_uniqueness_and_indexes.sql`
 
 Она добавляет:
 
@@ -76,8 +82,9 @@ npm run build
 2. Если у аккаунта нет профиля/компании, пройти `/setup`
 3. Открыть каталог материалов
 4. Создать RFQ из списка запросов
-5. Перейти в RFQ detail и проверить полученные КП
-6. Открыть список заказов и detail заказа
+5. Перейти в RFQ detail, сравнить КП через советник и принять нужные КП
+6. Убедиться, что заказы созданы автоматически и появились в `/buyer/orders`
+7. Открыть отгрузку по заказу через `/buyer/shipments/:id`
 
 ### Supplier
 
@@ -86,7 +93,7 @@ npm run build
 3. Добавить/изменить позицию в offers
 4. Импортировать прайс из файла
 5. Открыть приглашённый RFQ и сохранить/отправить КП
-6. Открыть shipments и подтвердить отгрузку
+6. Открыть заказ и создать отгрузку, затем продвинуть статусы в `/supplier/shipments/:id`
 
 ## Ограничения
 

@@ -34,9 +34,9 @@
 2. buyer создает RFQ;
 3. RFQ рассылается поставщикам;
 4. supplier отвечает коммерческим предложением;
-5. buyer видит quotes по своему RFQ;
-6. далее система показывает заказы и отгрузки, но их создание из UI сейчас не реализовано;
-7. supplier может поддерживать свои offers, импортировать прайс, смотреть shipments и менять статус отгрузки.
+5. buyer видит quotes по своему RFQ, получает скоринговую рекомендацию по выбору поставщика и принимает/отклоняет КП;
+6. при принятии КП автоматически создаются `orders` и `order_items`;
+7. supplier может поддерживать offers, импортировать прайс, создавать `shipments` из заказа и менять статус отгрузки.
 
 ---
 
@@ -260,6 +260,7 @@ Supabase client создается с:
 - `/buyer/rfq/:id`
 - `/buyer/orders`
 - `/buyer/orders/:id`
+- `/buyer/shipments/:id`
 
 ### 7.4. Supplier routes
 
@@ -368,6 +369,7 @@ Supplier nav:
 1. `materials` по `name` или `sku`
 2. `rfqs` своей buyer company по `title`
 3. `orders` своей buyer company по `order_number`
+4. `shipments` своей buyer company по `shipment_number`
 
 ### 9.4. Ограничения поиска
 
@@ -401,7 +403,7 @@ Mapping:
 - `rfq` -> buyer `/buyer/rfq/:id` или supplier `/supplier/rfq/:id`
 - `quote` -> тот же RFQ detail в зависимости от роли
 - `order` -> buyer `/buyer/orders/:id` или supplier `/supplier/orders/:id`
-- `shipment` -> `/supplier/shipments/:id`
+- `shipment` -> buyer `/buyer/shipments/:id` или supplier `/supplier/shipments/:id`
 - `profile` -> `/settings/profile`
 - `company` -> `/settings/company`
 - `system` -> default route роли
@@ -411,8 +413,8 @@ Mapping:
 В коде подтверждено:
 
 - UI читает и обновляет read-state
-- UI создания notifications во фронте нет
-- insert/delete flow для notifications во фронте не найден
+- notifications вставляются из ключевых бизнес-действий (quote approve/reject, shipment create)
+- отдельного standalone CRUD-экрана notifications нет
 
 ---
 
@@ -661,18 +663,20 @@ Mapping:
 
 ### 12.1. Миграции
 
-В репозитории есть две миграции:
+В репозитории есть миграции:
 
 1. `supabase/migrations/20260413121450_436621b2-da72-4919-8be1-0454e5579ed5.sql`
 2. `supabase/migrations/20260413190000_demo_rls_and_helper_policies.sql`
+3. `supabase/migrations/20260423110000_material_import_insert_policies.sql`
+4. `supabase/migrations/20260427120000_quote_approval_order_shipment_policies.sql`
+5. `supabase/migrations/20260427140000_order_quote_uniqueness_and_indexes.sql`
 
-Первая — старая, минимальная.
+Роли миграций:
 
-Вторая — текущая demo-oriented миграция, которая:
-
-- добавляет helper functions;
-- включает RLS на основные таблицы;
-- добавляет базовые write policy для demo-flow.
+- `20260413190000...` — основа demo-RLS: helper-функции, read-доступы и базовые write policy;
+- `20260423110000...` — INSERT policy для `material_categories/materials` в сценарии импорта прайса;
+- `20260427120000...` — INSERT/UPDATE policy для buyer quote-approval, создания orders/order_items, supplier shipments/shipment_items и demo notifications.
+- `20260427140000...` — уникальность `orders.quote_id` (один заказ на принятое КП) и индексы для связей `orders`/`shipments`.
 
 ### 12.2. Helper functions
 
@@ -704,12 +708,12 @@ Mapping:
 #### `material_categories` / `materials`
 
 - authenticated может читать
-- insert/update/delete policy для этих master-справочников в этой миграции нет
+- insert policy добавлены отдельной миграцией для ролей `supplier|manager|admin`
 
 Это критично:
 
-- материалы должны быть предзаполнены отдельно;
-- отдельного standalone UI для ручного CRUD по `materials` нет, но `PriceImport` умеет автосоздавать отсутствующие материалы из Excel.
+- standalone CRUD-экрана по `materials` нет;
+- `PriceImport` умеет автосоздавать отсутствующие материалы из Excel.
 
 #### `supplier_offers`
 
@@ -748,27 +752,29 @@ Mapping:
 #### `orders`
 
 - select только если order относится к buyer/supplier company пользователя
-- write policy в миграции нет
+- insert policy есть для buyer своей компании (создание из принятого quote)
 
 #### `order_items`
 
 - select только по доступному order
-- write policy нет
+- insert policy есть для buyer по своим orders
 
 #### `shipments`
 
 - buyer/supplier видят свои shipments
 - supplier может update свои shipments
+- supplier может insert свои shipments по своим orders
 
 #### `shipment_items`
 
 - select по доступной shipment
-- write policy нет
+- supplier может insert shipment_items для своих shipments
 
 #### `notifications`
 
 - user читает только свои notifications
 - user может update только свои notifications
+- authenticated может insert notifications (для demo-автоматизаций)
 
 ### 12.4. Практический вывод по write-flow
 
@@ -785,20 +791,20 @@ Mapping:
 - CRUD supplier offers
 - create/update quotes
 - create/update quote items
+- buyer approve/reject quote
+- create orders + order items из принятого quote
+- create shipments + shipment items из заказа
 - update shipments status
 - update notifications read state
+- create notifications из ключевых бизнес-действий
 - import price list -> create/update supplier offers
 
 Не найдено полноценных write-flow:
 
 - create/edit materials
 - create/edit material categories
-- create orders
-- create order items
-- create shipments
-- create shipment items
-- create notifications
-- buyer approve/reject quote
+- ручное редактирование orders/order_items после создания
+- ручное редактирование shipment_items после создания
 
 ---
 
@@ -954,16 +960,25 @@ Create flow:
 - RFQ
 - RFQ items
 - quotes + quote_items
+- orders по текущему RFQ
+- агрегаты поставщиков (надежность по предыдущим orders/shipments)
 
 Показывает:
 
 - summary по позициям и числу КП
 - таблицу позиций
 - таблицу quotes
+- блок уже созданных заказов по RFQ
+- скоринговый блок «Умный выбор поставщика»
 
 Что важно:
 
-- buyer видит quotes, но в текущем UI не может принять/отклонить quote;
+- buyer может:
+  - принять КП;
+  - отклонить КП (если по нему еще не создан заказ);
+- при принятии КП создаются `orders` и `order_items`;
+- ограничение сделано «по-хорошему»: один заказ на одно принятое КП (а не один заказ на весь RFQ);
+- RFQ после принятия остается `quoted`, пока есть открытые КП (`sent/draft`), и закрывается в `closed`, когда открытых КП больше нет;
 - кнопка `Экспорт` пока визуальная, без реализованного download flow.
 
 ### 14.6. `BuyerOrders`
@@ -1005,7 +1020,10 @@ Read-only.
 - список shipments
 - delivery address
 
-Read-only с точки зрения order, но supplier может дальше перейти в shipment detail и менять статус shipment.
+Логика:
+
+- для buyer: просмотр заказа и переход в buyer shipment detail;
+- для supplier: можно создать новую отгрузку по заказу (с автосозданием `shipment_items` из `order_items`).
 
 ---
 
@@ -1149,7 +1167,7 @@ Create/update payload:
 
 - это replace-all модель, а не patch по строкам;
 - НДС сейчас считается фиксированно как 20% от суммы строк;
-- accept/reject со стороны buyer в UI не реализован.
+- accept/reject со стороны buyer реализован в `src/pages/buyer/RfqDetail.tsx`.
 
 ### 15.6. `SupplierShipments`
 
@@ -1170,7 +1188,7 @@ Create/update payload:
 
 ### 15.7. `ShipmentDetail`
 
-`src/pages/supplier/ShipmentDetail.tsx`
+`src/pages/supplier/ShipmentDetail.tsx` (используется и для buyer-route, и для supplier-route)
 
 Читает:
 
@@ -1182,6 +1200,10 @@ Write flow:
 - supplier может продвинуть shipment по статусу:
   - `planned/ready -> in_transit`
   - `in_transit -> delivered`
+
+Для buyer:
+
+- только просмотр деталей отгрузки (без изменения статуса).
 
 При update проставляются:
 
@@ -1275,9 +1297,14 @@ Email:
 - `Offers` (create/update/delete)
 - `PriceImport` (insert/update)
 
+### Запись в `materials` и `material_categories`
+
+- `PriceImport` (auto-create материалов и import-категории при включенном флаге)
+
 ### Запись в `rfqs`
 
 - `RfqList` (insert)
+- `RfqDetail` (update статуса RFQ при принятии КП)
 
 ### Запись в `rfq_items`
 
@@ -1290,18 +1317,34 @@ Email:
 ### Запись в `quotes`
 
 - `SupplierRfqResponse` (insert/update)
+- `RfqDetail` (approve/reject со стороны buyer)
 
 ### Запись в `quote_items`
 
 - `SupplierRfqResponse` (delete + insert)
 
+### Запись в `orders`
+
+- `RfqDetail` (insert заказа при принятии КП)
+
+### Запись в `order_items`
+
+- `RfqDetail` (insert позиций заказа из выбранного КП)
+
 ### Запись в `shipments`
 
+- `OrderDetail` в supplier-режиме (insert новой отгрузки)
 - `ShipmentDetail` (update status + timestamps)
+
+### Запись в `shipment_items`
+
+- `OrderDetail` в supplier-режиме (insert позиций отгрузки из `order_items`)
 
 ### Запись в `notifications`
 
 - `NotificationsPanel` (update `is_read`)
+- `RfqDetail` (insert уведомлений о принятии/отклонении КП)
+- `OrderDetail` в supplier-режиме (insert уведомления buyer о созданной отгрузке)
 
 ---
 
@@ -1309,12 +1352,11 @@ Email:
 
 Подтверждено по коду:
 
-- `materials` — отдельного ручного CRUD UI нет, но запись возможна через auto-create в `PriceImport`
-- `material_categories` — только чтение
-- `orders` — только чтение
-- `order_items` — только чтение
-- `shipment_items` — только чтение
-- `notifications` — только чтение и mark-as-read, без create UI
+- `materials` — отдельного ручного CRUD UI нет (запись выполняется через импорт прайса)
+- `material_categories` — отдельного CRUD UI нет (создание через импорт)
+- `orders` / `order_items` — полноценного отдельного editor UI нет, но есть создание из принятого КП
+- `shipment_items` — редактирования нет, записи формируются автоматически при создании отгрузки
+- `notifications` — отдельного центра создания уведомлений нет, вставка выполняется из ключевых бизнес-экшенов
 
 Demo-only/placeholder логика:
 
@@ -1368,20 +1410,22 @@ Demo-only/placeholder логика:
 
 ### 19.4. `quotes`
 
-Они показываются buyer в `RfqDetail`, но не переводятся в `orders` автоматически на фронте.
+Buyer может принять/отклонить КП прямо в `RfqDetail`.
+
+При принятии:
+
+- создается запись в `orders`;
+- создаются `order_items`;
+- выбранное КП становится `accepted`, остальные `rejected`;
+- RFQ переводится в `closed`.
 
 ### 19.5. `orders` и `shipments`
 
-Сейчас это больше демонстрация downstream-данных, чем результат полного пользовательского сценария из UI.
+Цепочка теперь замкнута в UI для demo-сценария:
 
-Во фронте не найдено:
-
-- создания orders из quotes;
-- создания shipments из orders.
-
-Следовательно:
-
-- для демо их нужно seed'ить/держать в базе заранее или создавать вне текущего UI.
+- `RfqDetail` создает `orders` / `order_items` из принятого КП;
+- `OrderDetail` в supplier-режиме создает `shipments` / `shipment_items` из заказа;
+- `ShipmentDetail` продвигает статусы отгрузки (`planned|ready -> in_transit -> delivered`).
 
 ---
 
@@ -1391,13 +1435,11 @@ Demo-only/placeholder логика:
 
 Это не баг конкретной страницы, а архитектурное ограничение текущего demo.
 
-### 20.2. Buyer не может завершить цикл RFQ -> quote -> order из UI
+### 20.2. По cycle RFQ -> quote -> order есть остаточные ограничения
 
-Потому что в коде не найдено:
+Этот риск закрыт: approve/reject и create order уже реализованы.
 
-- approve/reject quote
-- create order
-- create shipment
+Остается ограничение: нет отдельного экрана редактирования уже созданного заказа (изменение позиций/сумм).
 
 ### 20.3. Setup создает новую company на каждого нового пользователя
 
@@ -1426,6 +1468,12 @@ Demo-only/placeholder логика:
 - основной JS chunk около `1.2 MB`
 
 Это не блокер для demo, но это уже заметный технический риск для будущего роста.
+
+### 20.8. Нет транзакционности multi-step операций на фронте
+
+Ключевые цепочки (`accept quote -> order + order_items + status updates`, `create shipment -> shipment_items`) выполняются последовательными запросами из клиента.
+
+Для demo этого достаточно, но в production лучше переносить это в RPC/Edge Function с транзакцией и идемпотентностью.
 
 ---
 
@@ -1478,7 +1526,7 @@ Entity data оттуда уже не используются как источ�
 Потому что:
 
 - полного ручного управления master data (`materials`) из UI нет; bootstrap возможен через auto-create в `PriceImport`;
-- RFQ -> order -> shipment полный workflow из фронта не доведен;
+- ключевой RFQ -> quote -> order -> shipment workflow из фронта доведен до demo-уровня;
 - часть downstream-сущностей живет как seed/demo data;
 - часть кнопок остается визуальной или полуреализованной.
 
@@ -1552,11 +1600,12 @@ Entity data оттуда уже не используются как источ�
 5. Supplier price import в обычном режиме обновляет `supplier_offers`, а при включенном auto-create может дополнительно создавать отсутствующие `materials`.
 6. RFQ create у buyer работает.
 7. Quote create/update у supplier работает.
-8. Orders и shipments в UI в основном read-only; полного создания из фронта нет.
-9. Shipment status update у supplier работает.
-10. Notifications panel и topbar search уже живые.
-11. Для корректной demo-ветки критична миграция `supabase/migrations/20260413190000_demo_rls_and_helper_policies.sql`.
-12. В репозитории по-прежнему нет полноценного seed для `materials`, но `PriceImport` теперь может bootstrap-нуть часть справочника из Excel; для этого на Supabase должны быть применены INSERT policy для `material_categories/materials`.
+8. Buyer в `RfqDetail` может approve/reject quote; при approve автоматически создаются `orders` и `order_items`.
+9. По одному RFQ можно создать несколько заказов (по одному на каждое принятое КП), а по каждому заказу — несколько отгрузок.
+10. Supplier в `OrderDetail` может создать `shipment` и `shipment_items` из заказа; buyer и supplier могут открывать shipment detail (статус меняет только supplier).
+11. Notifications panel и topbar search уже живые.
+12. Для корректной demo-ветки критично применить весь набор миграций, включая `20260423110000...`, `20260427120000...` и `20260427140000...`.
+13. Полноценного seed-пакета для `materials` в репозитории нет, но `PriceImport` умеет bootstrap справочник из Excel (при примененных INSERT policy).
 
 ---
 
@@ -1567,8 +1616,8 @@ Entity data оттуда уже не используются как источ�
 - identity и доступы уже реальные;
 - buyer/supplier UI в основном живые;
 - критичные read-flow уже переведены с mock на Supabase;
-- часть write-flow уже работает;
-- но master data и downstream fulfillment-потоки еще не замкнуты полностью внутри UI.
+- критичные write-flow (RFQ -> quote -> order -> shipment) уже замкнуты внутри UI;
+- но остаются demo-ограничения (route planning placeholder, экспорт/печать без backend-flow, минимальные автотесты).
 
 Самая важная операционная зависимость проекта сейчас:
 

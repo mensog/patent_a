@@ -54,7 +54,7 @@ export function getNotificationHref(
     case 'order':
       return role === 'supplier' ? `/supplier/orders/${entityId}` : `/buyer/orders/${entityId}`;
     case 'shipment':
-      return `/supplier/shipments/${entityId}`;
+      return role === 'supplier' ? `/supplier/shipments/${entityId}` : `/buyer/shipments/${entityId}`;
     case 'profile':
       return '/settings/profile';
     case 'company':

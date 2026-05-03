@@ -138,6 +138,23 @@ export function TopbarSearch() {
             group: 'Заказы',
           });
         });
+
+        const { data: shipments } = await supabase
+          .from('shipments')
+          .select('id, shipment_number, orders!inner(buyer_company_id)')
+          .eq('orders.buyer_company_id', companyId)
+          .ilike('shipment_number', queryText)
+          .limit(5);
+
+        shipments?.forEach((shipment) => {
+          collected.push({
+            id: `buyer-shipment-${shipment.id}`,
+            label: shipment.shipment_number ?? shipment.id.slice(0, 8),
+            description: 'Отгрузка',
+            href: `/buyer/shipments/${shipment.id}`,
+            group: 'Отгрузки',
+          });
+        });
       }
 
       return collected.slice(0, 12);
@@ -152,7 +169,7 @@ export function TopbarSearch() {
           <Search className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
           <input
             value={search}
-            placeholder="Поиск материалов, RFQ, заказов..."
+            placeholder="Поиск материалов, RFQ, заказов, отгрузок..."
             className="w-56 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             onFocus={() => setOpen(true)}
             onChange={(event) => setSearch(event.target.value)}

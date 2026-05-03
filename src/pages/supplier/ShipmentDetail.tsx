@@ -6,14 +6,18 @@ import { Truck, ArrowLeft, MapPin, User, Printer } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { formatDate } from '@/lib/app-utils';
+import { formatDate, getDashboardMode } from '@/lib/app-utils';
 import type { ShipmentItemWithOrderItem, ShipmentStatus, ShipmentWithOrder } from '@/types/app';
 
 export default function ShipmentDetail() {
   const { id } = useParams<{ id: string }>();
+  const { profile } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const mode = getDashboardMode(profile?.role);
+  const isSupplierMode = mode === 'supplier';
 
   const { data: shipment, isLoading } = useQuery({
     queryKey: ['shipment', id],
@@ -47,6 +51,9 @@ export default function ShipmentDetail() {
       if (!shipment) {
         throw new Error('Отгрузка не загружена.');
       }
+      if (!isSupplierMode) {
+        throw new Error('Только поставщик может менять статус отгрузки.');
+      }
 
       let nextStatus: ShipmentStatus = shipment.status;
       const patch: Partial<ShipmentWithOrder> = {};
@@ -77,6 +84,9 @@ export default function ShipmentDetail() {
         queryClient.invalidateQueries({ queryKey: ['supplier-shipments'] }),
         queryClient.invalidateQueries({ queryKey: ['supplier-shipments-list'] }),
         queryClient.invalidateQueries({ queryKey: ['route-shipments'] }),
+        queryClient.invalidateQueries({ queryKey: ['order', shipment?.order_id] }),
+        queryClient.invalidateQueries({ queryKey: ['order-shipments', shipment?.order_id] }),
+        queryClient.invalidateQueries({ queryKey: ['buyer-orders-list'] }),
       ]);
       toast({ title: 'Статус отгрузки обновлён' });
     },
@@ -89,8 +99,8 @@ export default function ShipmentDetail() {
     },
   });
 
-  if (isLoading) return <DashboardLayout mode="supplier"><p className="py-16 text-center text-sm text-muted-foreground">Загрузка…</p></DashboardLayout>;
-  if (!shipment) return <DashboardLayout mode="supplier"><p className="py-16 text-center text-sm text-muted-foreground">Отгрузка не найдена</p></DashboardLayout>;
+  if (isLoading) return <DashboardLayout mode={mode}><p className="py-16 text-center text-sm text-muted-foreground">Загрузка…</p></DashboardLayout>;
+  if (!shipment) return <DashboardLayout mode={mode}><p className="py-16 text-center text-sm text-muted-foreground">Отгрузка не найдена</p></DashboardLayout>;
 
   const order = shipment.orders;
   const statusOrder = ['planned', 'ready', 'in_transit', 'delivered'];
@@ -101,16 +111,18 @@ export default function ShipmentDetail() {
     { label: 'В пути', done: currentIdx >= 2, active: shipment.status === 'in_transit' },
     { label: 'Доставлено', done: currentIdx >= 3, active: shipment.status === 'delivered' },
   ];
-  const canAdvance = shipment.status === 'planned' || shipment.status === 'ready' || shipment.status === 'in_transit';
+  const canAdvance = isSupplierMode && (shipment.status === 'planned' || shipment.status === 'ready' || shipment.status === 'in_transit');
   const actionLabel =
     shipment.status === 'in_transit' ? 'Подтвердить доставку' : 'Подтвердить отгрузку';
+  const backHref = isSupplierMode ? '/supplier/shipments' : `/buyer/orders/${shipment.order_id}`;
+  const backLabel = isSupplierMode ? 'Все отгрузки' : 'К заказу';
 
   return (
-    <DashboardLayout mode="supplier">
+    <DashboardLayout mode={mode}>
       <div className="space-y-6">
         <div>
-          <Link to="/supplier/shipments" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors mb-2">
-            <ArrowLeft className="h-3 w-3" /> Все отгрузки
+          <Link to={backHref} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors mb-2">
+            <ArrowLeft className="h-3 w-3" /> {backLabel}
           </Link>
           <div className="flex items-center justify-between">
             <div>
@@ -122,17 +134,21 @@ export default function ShipmentDetail() {
             </div>
             <div className="flex items-center gap-2">
               <StatusBadge status={shipment.status} />
-              <Button size="sm" variant="outline" className="text-xs h-8 gap-1">
-                <Printer className="h-3 w-3" /> Печать ТТН
-              </Button>
-              <Button
-                size="sm"
-                className="text-xs h-8 gap-1"
-                disabled={!canAdvance || advanceShipmentMutation.isPending}
-                onClick={() => advanceShipmentMutation.mutate()}
-              >
-                <Truck className="h-3 w-3" /> {advanceShipmentMutation.isPending ? 'Сохранение…' : actionLabel}
-              </Button>
+              {isSupplierMode && (
+                <>
+                  <Button size="sm" variant="outline" className="text-xs h-8 gap-1">
+                    <Printer className="h-3 w-3" /> Печать ТТН
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="text-xs h-8 gap-1"
+                    disabled={!canAdvance || advanceShipmentMutation.isPending}
+                    onClick={() => advanceShipmentMutation.mutate()}
+                  >
+                    <Truck className="h-3 w-3" /> {advanceShipmentMutation.isPending ? 'Сохранение…' : actionLabel}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </div>

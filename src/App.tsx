@@ -50,6 +50,7 @@ const App = () => (
             <Route path="/buyer/rfq/:id" element={<ProtectedRoute allowedRoles={['buyer', 'manager', 'admin']}><RfqDetail /></ProtectedRoute>} />
             <Route path="/buyer/orders" element={<ProtectedRoute allowedRoles={['buyer', 'manager', 'admin']}><BuyerOrders /></ProtectedRoute>} />
             <Route path="/buyer/orders/:id" element={<ProtectedRoute allowedRoles={['buyer', 'manager', 'admin']}><OrderDetail /></ProtectedRoute>} />
+            <Route path="/buyer/shipments/:id" element={<ProtectedRoute allowedRoles={['buyer', 'manager', 'admin']}><ShipmentDetail /></ProtectedRoute>} />
             {/* Supplier */}
             <Route path="/supplier" element={<ProtectedRoute allowedRoles={['supplier', 'manager', 'admin']}><SupplierDashboard /></ProtectedRoute>} />
             <Route path="/supplier/offers" element={<ProtectedRoute allowedRoles={['supplier', 'manager', 'admin']}><Offers /></ProtectedRoute>} />

@@ -1,19 +1,44 @@
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, MapPin, Truck } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Timeline } from '@/components/Timeline';
-import { ArrowLeft, Truck, MapPin } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency, formatDate, getDashboardMode } from '@/lib/app-utils';
 import type { OrderItem, OrderWithCompanies, Shipment } from '@/types/app';
+
+function buildShipmentNumber() {
+  const datePart = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+  const randomPart = Math.floor(Math.random() * 900 + 100);
+  return `SHP-${datePart}-${randomPart}`;
+}
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const { profile } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const mode = getDashboardMode(profile?.role);
   const ordersListHref = mode === 'supplier' ? '/supplier' : '/buyer/orders';
+  const defaultPlannedDate = useMemo(
+    () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    [],
+  );
+  const [shipmentDialogOpen, setShipmentDialogOpen] = useState(false);
+  const [plannedDate, setPlannedDate] = useState(defaultPlannedDate);
+  const [driverName, setDriverName] = useState('');
+  const [driverPhone, setDriverPhone] = useState('');
+  const [vehicleInfo, setVehicleInfo] = useState('');
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [routeNote, setRouteNote] = useState('');
 
   const { data: order, isLoading: orderLoading } = useQuery({
     queryKey: ['order', id],
@@ -56,6 +81,115 @@ export default function OrderDetail() {
     enabled: !!id,
   });
 
+  const resetShipmentForm = () => {
+    setPlannedDate(defaultPlannedDate);
+    setDriverName('');
+    setDriverPhone('');
+    setVehicleInfo('');
+    setTrackingNumber('');
+    setRouteNote('');
+  };
+
+  const createShipmentMutation = useMutation({
+    mutationFn: async () => {
+      if (mode !== 'supplier') {
+        throw new Error('Создавать отгрузки может только поставщик.');
+      }
+
+      if (!profile?.company_id) {
+        throw new Error('Компания поставщика не определена.');
+      }
+
+      if (!order) {
+        throw new Error('Заказ не загружен.');
+      }
+
+      if (!items.length) {
+        throw new Error('В заказе нет позиций для отгрузки.');
+      }
+
+      const { data: shipment, error: shipmentError } = await supabase
+        .from('shipments')
+        .insert({
+          order_id: order.id,
+          supplier_company_id: profile.company_id,
+          shipment_number: buildShipmentNumber(),
+          status: 'planned',
+          planned_date: plannedDate || null,
+          driver_name: driverName.trim() || null,
+          driver_phone: driverPhone.trim() || null,
+          vehicle_info: vehicleInfo.trim() || null,
+          tracking_number: trackingNumber.trim() || null,
+          route_note: routeNote.trim() || null,
+        })
+        .select('id, shipment_number')
+        .single();
+
+      if (shipmentError || !shipment) {
+        throw shipmentError ?? new Error('Не удалось создать отгрузку.');
+      }
+
+      const shipmentItemsPayload = items.map((item) => ({
+        shipment_id: shipment.id,
+        order_item_id: item.id,
+        quantity: Number(item.quantity),
+      }));
+
+      const { error: shipmentItemsError } = await supabase
+        .from('shipment_items')
+        .insert(shipmentItemsPayload);
+
+      if (shipmentItemsError) {
+        throw shipmentItemsError;
+      }
+
+      if (order.created_by) {
+        const { error: notificationError } = await supabase.from('notifications').insert({
+          user_id: order.created_by,
+          type: 'shipment',
+          title: 'Создана отгрузка по заказу',
+          body: `По заказу ${order.order_number ? `#${order.order_number}` : ''} создана новая отгрузка.`,
+          related_entity_id: shipment.id,
+          related_entity_type: 'shipment',
+        });
+
+        if (notificationError) {
+          console.warn('Не удалось отправить уведомление о новой отгрузке:', notificationError.message);
+        }
+      }
+
+      return shipment;
+    },
+    onSuccess: async (shipment) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['order', id] }),
+        queryClient.invalidateQueries({ queryKey: ['order-items', id] }),
+        queryClient.invalidateQueries({ queryKey: ['order-shipments', id] }),
+        queryClient.invalidateQueries({ queryKey: ['supplier-shipments', profile?.company_id] }),
+        queryClient.invalidateQueries({ queryKey: ['supplier-shipments-list', profile?.company_id] }),
+        queryClient.invalidateQueries({ queryKey: ['route-shipments', profile?.company_id] }),
+        queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+      ]);
+
+      setShipmentDialogOpen(false);
+      resetShipmentForm();
+
+      toast({
+        title: 'Отгрузка создана',
+        description: shipment.shipment_number
+          ? `Новая отгрузка #${shipment.shipment_number} добавлена в систему.`
+          : 'Новая отгрузка добавлена в систему.',
+      });
+    },
+    onError: (mutationError: Error) => {
+      toast({
+        title: 'Не удалось создать отгрузку',
+        description: mutationError.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
   if (orderLoading) return <DashboardLayout mode={mode}><p className="py-16 text-center text-sm text-muted-foreground">Загрузка…</p></DashboardLayout>;
   if (!order) return <DashboardLayout mode={mode}><p className="py-16 text-center text-sm text-muted-foreground">Заказ не найден</p></DashboardLayout>;
 
@@ -83,6 +217,17 @@ export default function OrderDetail() {
             <div className="flex items-center gap-2">
               <StatusBadge status={order.status} />
               <StatusBadge status={order.payment_status} />
+              {mode === 'supplier' && (
+                <Button
+                  size="sm"
+                  className="h-8 gap-1 text-xs"
+                  disabled={createShipmentMutation.isPending || items.length === 0}
+                  onClick={() => setShipmentDialogOpen(true)}
+                >
+                  <Truck className="h-3.5 w-3.5" />
+                  Новая отгрузка
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -135,28 +280,49 @@ export default function OrderDetail() {
               </div>
             </div>
 
-            {/* Shipments */}
-            {shipments.length > 0 && (
-              <div className="card-panel">
-                <div className="px-5 pt-5 pb-0">
-                  <h3 className="section-title">Отгрузки</h3>
-                </div>
-                <div className="p-5 space-y-2">
-                  {shipments.map(s => (
-                    <div key={s.id} className="flex items-center justify-between rounded-md border p-3.5">
+            <div className="card-panel">
+              <div className="px-5 pt-5 pb-0">
+                <h3 className="section-title">Отгрузки</h3>
+              </div>
+              <div className="p-5 space-y-2">
+                {shipments.length === 0 ? (
+                  <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+                    Отгрузок пока нет
+                  </div>
+                ) : (
+                  shipments.map((shipment) => (
+                    <div key={shipment.id} className="flex items-center justify-between rounded-md border p-3.5">
                       <div>
-                        <span className="text-sm font-medium">{s.shipment_number || s.id.slice(0, 8)}</span>
-                        {s.driver_name && <p className="text-xs text-muted-foreground mt-0.5">Водитель: {s.driver_name}</p>}
+                        {mode === 'supplier' ? (
+                          <Link
+                            to={`/supplier/shipments/${shipment.id}`}
+                            className="text-sm font-medium text-primary hover:underline"
+                          >
+                            {shipment.shipment_number || shipment.id.slice(0, 8)}
+                          </Link>
+                        ) : mode === 'buyer' ? (
+                          <Link
+                            to={`/buyer/shipments/${shipment.id}`}
+                            className="text-sm font-medium text-primary hover:underline"
+                          >
+                            {shipment.shipment_number || shipment.id.slice(0, 8)}
+                          </Link>
+                        ) : (
+                          <span className="text-sm font-medium">{shipment.shipment_number || shipment.id.slice(0, 8)}</span>
+                        )}
+                        {shipment.driver_name && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">Водитель: {shipment.driver_name}</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">{formatDate(s.planned_date)}</span>
-                        <StatusBadge status={s.status} />
+                        <span className="text-xs text-muted-foreground">{formatDate(shipment.planned_date)}</span>
+                        <StatusBadge status={shipment.status} />
                       </div>
                     </div>
-                  ))}
-                </div>
+                  ))
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           {/* Right column */}
@@ -182,6 +348,72 @@ export default function OrderDetail() {
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={shipmentDialogOpen}
+        onOpenChange={(nextOpen) => {
+          if (createShipmentMutation.isPending) {
+            return;
+          }
+
+          setShipmentDialogOpen(nextOpen);
+
+          if (!nextOpen) {
+            resetShipmentForm();
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Создание отгрузки</DialogTitle>
+            <DialogDescription>
+              Новая отгрузка будет создана по текущему заказу и заполнена позициями заказа автоматически.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Плановая дата</Label>
+              <Input type="date" value={plannedDate} onChange={(event) => setPlannedDate(event.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Трек-номер</Label>
+              <Input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} placeholder="TK-458729" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Водитель</Label>
+              <Input value={driverName} onChange={(event) => setDriverName(event.target.value)} placeholder="Иван Петров" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Телефон водителя</Label>
+              <Input value={driverPhone} onChange={(event) => setDriverPhone(event.target.value)} placeholder="+7 999 123-45-67" />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs">Транспорт</Label>
+              <Input value={vehicleInfo} onChange={(event) => setVehicleInfo(event.target.value)} placeholder="MAN TGS · А123ВС 77" />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label className="text-xs">Комментарий к маршруту</Label>
+              <textarea
+                value={routeNote}
+                onChange={(event) => setRouteNote(event.target.value)}
+                rows={3}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Контакт на складе, окно разгрузки, особенности проезда..."
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShipmentDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={() => createShipmentMutation.mutate()} disabled={createShipmentMutation.isPending || !items.length}>
+              {createShipmentMutation.isPending ? 'Создание…' : 'Создать отгрузку'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
