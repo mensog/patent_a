@@ -50,7 +50,7 @@ export type OrderWithCompanies = Order & {
 };
 
 export type ShipmentWithOrder = Shipment & {
-  orders: (Pick<Order, 'order_number' | 'delivery_address' | 'buyer_company_id'> & {
+  orders: (Pick<Order, 'order_number' | 'delivery_address' | 'buyer_company_id' | 'created_by'> & {
     companies: Pick<Company, 'name'> | null;
   }) | null;
 };

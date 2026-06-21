@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency, formatDate } from '@/lib/app-utils';
+import { createNotificationsForCompanyUsers, createNotificationsForUsers } from '@/lib/notifications';
 import type { Quote, QuoteItem, QuoteStatus, RfqItemWithMaterial, RfqWithBuyerCompany } from '@/types/app';
 
 interface QuoteFormRow {
@@ -173,6 +174,7 @@ export default function SupplierRfqResponse() {
       };
 
       let quoteId = existingQuote?.id ?? null;
+      const wasAlreadySent = existingQuote?.status === 'sent';
 
       if (quoteId) {
         const { error: updateError } = await supabase
@@ -227,6 +229,32 @@ export default function SupplierRfqResponse() {
 
       if (quoteItemsError) {
         throw quoteItemsError;
+      }
+
+      if (status === 'sent') {
+        const { error: rfqStatusError } = await supabase
+          .from('rfqs')
+          .update({ status: 'quoted' })
+          .eq('id', id)
+          .in('status', ['published', 'quoted']);
+
+        if (rfqStatusError) {
+          console.warn('Не удалось обновить статус RFQ:', rfqStatusError.message);
+        }
+
+        const notificationPayload = {
+          type: 'quote' as const,
+          title: wasAlreadySent ? 'КП обновлено поставщиком' : 'Получено новое КП',
+          body: `${profile?.full_name ?? 'Поставщик'} отправил предложение по RFQ "${rfq?.title ?? 'запрос'}" на сумму ${formatCurrency(totals.totalAmount)}.`,
+          related_entity_id: id,
+          related_entity_type: 'rfq',
+        };
+
+        if (rfq?.created_by) {
+          await createNotificationsForUsers([rfq.created_by], notificationPayload);
+        } else if (rfq?.buyer_company_id) {
+          await createNotificationsForCompanyUsers([rfq.buyer_company_id], notificationPayload);
+        }
       }
     },
     onSuccess: async (_data, status) => {

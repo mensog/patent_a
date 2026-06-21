@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { formatDate, getDashboardMode } from '@/lib/app-utils';
+import { createNotificationsForCompanyUsers, createNotificationsForUsers } from '@/lib/notifications';
 import type { ShipmentItemWithOrderItem, ShipmentStatus, ShipmentWithOrder } from '@/types/app';
 
 export default function ShipmentDetail() {
@@ -24,7 +25,7 @@ export default function ShipmentDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('shipments')
-        .select('*, orders!shipments_order_id_fkey(order_number, delivery_address, buyer_company_id, companies!orders_buyer_company_id_fkey(name))')
+        .select('*, orders!shipments_order_id_fkey(order_number, delivery_address, buyer_company_id, created_by, companies!orders_buyer_company_id_fkey(name))')
         .eq('id', id!)
         .single();
       if (error) throw error;
@@ -76,8 +77,35 @@ export default function ShipmentDetail() {
       if (error) {
         throw error;
       }
+
+      const nextOrderStatus = nextStatus === 'delivered' ? 'received' : 'shipped';
+      const { error: orderStatusError } = await supabase
+        .from('orders')
+        .update({ status: nextOrderStatus })
+        .eq('id', shipment.order_id);
+
+      if (orderStatusError) {
+        console.warn('Не удалось обновить статус заказа после изменения отгрузки:', orderStatusError.message);
+      }
+
+      const order = shipment.orders;
+      const notificationPayload = {
+        type: 'shipment' as const,
+        title: nextStatus === 'delivered' ? 'Отгрузка доставлена' : 'Отгрузка отправлена',
+        body: `Отгрузка ${shipment.shipment_number ?? shipment.id.slice(0, 8)} по заказу ${order?.order_number ? `#${order.order_number}` : ''} теперь в статусе "${nextStatus === 'delivered' ? 'Доставлено' : 'В пути'}".`,
+        related_entity_id: shipment.id,
+        related_entity_type: 'shipment',
+      };
+
+      if (order?.created_by) {
+        await createNotificationsForUsers([order.created_by], notificationPayload);
+      } else if (order?.buyer_company_id) {
+        await createNotificationsForCompanyUsers([order.buyer_company_id], notificationPayload);
+      }
+
+      return nextStatus;
     },
-    onSuccess: async () => {
+    onSuccess: async (nextStatus) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['shipment', id] }),
         queryClient.invalidateQueries({ queryKey: ['shipment-items', id] }),
@@ -87,8 +115,12 @@ export default function ShipmentDetail() {
         queryClient.invalidateQueries({ queryKey: ['order', shipment?.order_id] }),
         queryClient.invalidateQueries({ queryKey: ['order-shipments', shipment?.order_id] }),
         queryClient.invalidateQueries({ queryKey: ['buyer-orders-list'] }),
+        queryClient.invalidateQueries({ queryKey: ['notifications'] }),
       ]);
-      toast({ title: 'Статус отгрузки обновлён' });
+      toast({
+        title: 'Статус отгрузки обновлён',
+        description: nextStatus === 'delivered' ? 'Покупатель получил уведомление о доставке.' : 'Покупатель получил уведомление об отправке.',
+      });
     },
     onError: (error: Error) => {
       toast({
@@ -116,6 +148,29 @@ export default function ShipmentDetail() {
     shipment.status === 'in_transit' ? 'Подтвердить доставку' : 'Подтвердить отгрузку';
   const backHref = isSupplierMode ? '/supplier/shipments' : `/buyer/orders/${shipment.order_id}`;
   const backLabel = isSupplierMode ? 'Все отгрузки' : 'К заказу';
+  const printWaybill = () => {
+    const rows = shipmentItems
+      .map((item) => `${item.order_items?.material_name ?? 'Материал'} — ${item.quantity} ${item.order_items?.unit ?? ''}`)
+      .join('\n');
+    const blob = new Blob([
+      [
+        'EcaMarket transport waybill',
+        `Отгрузка: ${shipment.shipment_number ?? shipment.id}`,
+        `Заказ: ${order?.order_number ?? shipment.order_id}`,
+        `Покупатель: ${order?.companies?.name ?? '—'}`,
+        `Адрес: ${order?.delivery_address ?? '—'}`,
+        `Плановая дата: ${formatDate(shipment.planned_date)}`,
+        '',
+        rows || 'Позиции не указаны',
+      ].join('\n'),
+    ], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `ttn_${shipment.shipment_number ?? shipment.id.slice(0, 8)}.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <DashboardLayout mode={mode}>
@@ -136,7 +191,7 @@ export default function ShipmentDetail() {
               <StatusBadge status={shipment.status} />
               {isSupplierMode && (
                 <>
-                  <Button size="sm" variant="outline" className="text-xs h-8 gap-1">
+                  <Button size="sm" variant="outline" className="text-xs h-8 gap-1" onClick={printWaybill}>
                     <Printer className="h-3 w-3" /> Печать ТТН
                   </Button>
                   <Button

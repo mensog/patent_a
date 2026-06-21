@@ -1,9 +1,10 @@
 import { DashboardLayout } from '@/components/DashboardLayout';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, FilePlus2 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { formatCurrency } from '@/lib/app-utils';
+import { Button } from '@/components/ui/button';
 import type { MaterialWithCategory, SupplierOfferWithCompany } from '@/types/app';
 
 export default function MaterialDetail() {
@@ -52,14 +53,24 @@ export default function MaterialDetail() {
           <Link to="/buyer/catalog" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors mb-2">
             <ArrowLeft className="h-3 w-3" /> Каталог
           </Link>
-          <h1 className="page-title">{material.name}</h1>
-          <div className="mt-1.5 flex items-center gap-3 text-sm text-muted-foreground">
-            <span className="inline-flex rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
-              {material.material_categories?.name ?? '—'}
-            </span>
-            {material.sku && <span className="font-mono text-xs">{material.sku}</span>}
-            <span>·</span>
-            <span>Ед.: {material.unit}</span>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="page-title">{material.name}</h1>
+              <div className="mt-1.5 flex items-center gap-3 text-sm text-muted-foreground">
+                <span className="inline-flex rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {material.material_categories?.name ?? '—'}
+                </span>
+                {material.sku && <span className="font-mono text-xs">{material.sku}</span>}
+                <span>·</span>
+                <span>Ед.: {material.unit}</span>
+              </div>
+            </div>
+            <Link to={`/buyer/rfq?materialId=${material.id}`}>
+              <Button className="gap-2">
+                <FilePlus2 className="h-4 w-4" />
+                Создать запрос на закупку
+              </Button>
+            </Link>
           </div>
         </div>
 
@@ -132,6 +143,11 @@ export default function MaterialDetail() {
                             <p className="font-medium tabular-nums">{o.lead_time_days ?? '—'} дн.</p>
                           </div>
                         </div>
+                        <Button asChild size="sm" variant={isBest ? 'default' : 'outline'} className="h-8 shrink-0 text-xs">
+                          <Link to={`/buyer/rfq?materialId=${material.id}&supplierId=${o.supplier_company_id}`}>
+                            Запросить КП
+                          </Link>
+                        </Button>
                       </div>
                     </div>
                   );

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { StatusBadge } from '@/components/StatusBadge';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/app-utils';
+import { createNotificationsForCompanyUsers } from '@/lib/notifications';
 import type { MaterialPreview, Rfq, RfqStatus } from '@/types/app';
 
 interface RfqFormItem {
@@ -58,8 +59,10 @@ export default function RfqList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const companyId = profile?.company_id;
+  const [searchParams, setSearchParams] = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<RfqFormState>(initialForm);
+  const prefilledMaterialIdRef = useRef<string | null>(null);
 
   const { data: rfqs = [], isLoading, error } = useQuery({
     queryKey: ['buyer-all-rfqs', companyId],
@@ -96,6 +99,64 @@ export default function RfqList() {
     },
   });
 
+  useEffect(() => {
+    const materialId = searchParams.get('materialId');
+    const supplierId = searchParams.get('supplierId');
+    if (!materialId || prefilledMaterialIdRef.current === materialId || !materials.length) {
+      return;
+    }
+
+    const material = materials.find((entry) => entry.id === materialId);
+    if (!material) {
+      return;
+    }
+
+    prefilledMaterialIdRef.current = materialId;
+    const prefillSupplierIds = async () => {
+      if (supplierId) {
+        return [supplierId];
+      }
+
+      const { data, error: queryError } = await supabase
+        .from('supplier_offers')
+        .select('supplier_company_id')
+        .eq('material_id', materialId)
+        .eq('is_active', true);
+
+      if (queryError) {
+        console.warn('Не удалось подобрать поставщиков по материалу:', queryError.message);
+        return [];
+      }
+
+      return Array.from(new Set((data ?? []).map((offer) => offer.supplier_company_id)));
+    };
+
+    setForm((current) => ({
+      ...current,
+      title: current.title || `Закупка: ${material.name}`,
+      items: [
+        {
+          ...createItem(1),
+          materialId: material.id,
+          unit: material.unit || 'шт',
+          quantity: current.items[0]?.quantity || '',
+        },
+      ],
+    }));
+    void prefillSupplierIds().then((supplierIds) => {
+      if (!supplierIds.length) {
+        return;
+      }
+
+      setForm((current) => ({
+        ...current,
+        supplierIds: Array.from(new Set([...current.supplierIds, ...supplierIds])),
+      }));
+    });
+    setDialogOpen(true);
+    setSearchParams({}, { replace: true });
+  }, [materials, searchParams, setSearchParams]);
+
   const { data: supplierCandidates = [] } = useQuery({
     queryKey: ['rfq-supplier-candidates'],
     queryFn: async () => {
@@ -123,6 +184,50 @@ export default function RfqList() {
 
       return Array.from(unique.values()).sort((left, right) => left.name.localeCompare(right.name, 'ru'));
     },
+  });
+
+  const rfqIds = rfqs.map((rfq) => rfq.id);
+
+  const { data: rfqItemCounts = {} } = useQuery({
+    queryKey: ['buyer-rfq-item-counts', rfqIds.join('|')],
+    queryFn: async () => {
+      if (!rfqIds.length) return {};
+      const { data, error: queryError } = await supabase
+        .from('rfq_items')
+        .select('rfq_id')
+        .in('rfq_id', rfqIds);
+
+      if (queryError) {
+        throw queryError;
+      }
+
+      return (data ?? []).reduce<Record<string, number>>((accumulator, item) => {
+        accumulator[item.rfq_id] = (accumulator[item.rfq_id] ?? 0) + 1;
+        return accumulator;
+      }, {});
+    },
+    enabled: rfqIds.length > 0,
+  });
+
+  const { data: quoteCounts = {} } = useQuery({
+    queryKey: ['buyer-rfq-quote-counts', rfqIds.join('|')],
+    queryFn: async () => {
+      if (!rfqIds.length) return {};
+      const { data, error: queryError } = await supabase
+        .from('quotes')
+        .select('rfq_id')
+        .in('rfq_id', rfqIds);
+
+      if (queryError) {
+        throw queryError;
+      }
+
+      return (data ?? []).reduce<Record<string, number>>((accumulator, quote) => {
+        accumulator[quote.rfq_id] = (accumulator[quote.rfq_id] ?? 0) + 1;
+        return accumulator;
+      }, {});
+    },
+    enabled: rfqIds.length > 0,
   });
 
   const createMutation = useMutation({
@@ -192,6 +297,14 @@ export default function RfqList() {
       if (invitesError) {
         throw invitesError;
       }
+
+      await createNotificationsForCompanyUsers(payload.supplierIds, {
+        type: 'rfq',
+        title: 'Новый запрос на КП',
+        body: `Покупатель опубликовал RFQ "${payload.title.trim()}". Проверьте позиции и подготовьте КП.`,
+        related_entity_id: rfq.id,
+        related_entity_type: 'rfq',
+      });
     },
     onSuccess: async () => {
       await Promise.all([
@@ -243,7 +356,7 @@ export default function RfqList() {
 
   return (
     <DashboardLayout mode="buyer">
-      <div className="space-y-6">
+      <div className="demo-page">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="page-title">Запросы на КП (RFQ)</h1>
@@ -265,15 +378,19 @@ export default function RfqList() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="table-header p-4 text-left">Запрос</th>
+                  <th className="table-header p-4 text-left">№</th>
+                  <th className="table-header p-4 text-left">Название</th>
+                  <th className="table-header p-4 text-center">Позиции</th>
+                  <th className="table-header p-4 text-center">КП получено</th>
                   <th className="table-header p-4 text-center">Статус</th>
                   <th className="table-header p-4 text-left">Создан</th>
                   <th className="table-header p-4 text-left">Дедлайн</th>
                 </tr>
               </thead>
               <tbody>
-                {rfqs.map((rfq) => (
+                {rfqs.map((rfq, index) => (
                   <tr key={rfq.id} className="border-b last:border-0 hover:bg-muted/40 transition-colors">
+                    <td className="p-4 font-mono text-xs text-muted-foreground">#{index + 1}</td>
                     <td className="p-4">
                       <Link
                         to={`/buyer/rfq/${rfq.id}`}
@@ -282,6 +399,8 @@ export default function RfqList() {
                         {rfq.title}
                       </Link>
                     </td>
+                    <td className="p-4 text-center tabular-nums">{rfqItemCounts[rfq.id] ?? 0}</td>
+                    <td className="p-4 text-center tabular-nums">{quoteCounts[rfq.id] ?? 0}</td>
                     <td className="p-4 text-center"><StatusBadge status={rfq.status} /></td>
                     <td className="p-4 text-xs text-muted-foreground">{formatDate(rfq.created_at)}</td>
                     <td className="p-4 text-xs text-muted-foreground">{formatDate(rfq.needed_by)}</td>
@@ -297,7 +416,7 @@ export default function RfqList() {
             <DialogHeader>
               <DialogTitle>Новый RFQ</DialogTitle>
               <DialogDescription>
-                Создайте demo-запрос, добавьте позиции и пригласите поставщиков.
+                Создайте запрос, добавьте позиции и пригласите поставщиков.
               </DialogDescription>
             </DialogHeader>
 

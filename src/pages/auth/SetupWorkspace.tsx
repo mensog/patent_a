@@ -70,7 +70,7 @@ export default function SetupWorkspace() {
     if (!normalizedCompanyName) {
       toast({
         title: 'Нужно указать компанию',
-        description: 'Без компании демо-кабинет не сможет загрузить данные.',
+        description: 'Без компании кабинет не сможет загрузить рабочие данные.',
         variant: 'destructive',
       });
       setSubmitting(false);
@@ -147,7 +147,7 @@ export default function SetupWorkspace() {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">EcaMarket setup</p>
           <h1 className="mt-2 text-2xl font-semibold text-foreground">Завершение настройки аккаунта</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Создаём рабочее пространство для demo-версии: профиль пользователя и компанию.
+            Создаём рабочее пространство: профиль пользователя и компанию.
           </p>
         </div>
 
@@ -202,12 +202,12 @@ export default function SetupWorkspace() {
           </div>
 
         <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-          Компания создаётся как demo-рабочее пространство и привязывается только к вашему аккаунту.
+          Компания создаётся как рабочее пространство и привязывается к вашему аккаунту.
         </div>
 
         <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-muted-foreground">
-          Если при сохранении появляется ошибка про `row-level security` для `companies`, нужно применить migration
-          `supabase/migrations/20260413190000_demo_rls_and_helper_policies.sql` на удалённом Supabase-проекте.
+          Если при сохранении появляется ошибка про `row-level security` для `companies`, нужно применить актуальные
+          миграции Supabase на удалённом проекте.
         </div>
 
           <Button className="w-full gap-2" type="submit" disabled={submitting}>

@@ -370,7 +370,7 @@ export default function Offers() {
             <DialogHeader>
               <DialogTitle>{form.id ? 'Редактирование предложения' : 'Новое предложение'}</DialogTitle>
               <DialogDescription>
-                Заполните ключевые параметры позиции. Изменения сразу попадут в demo-каталог.
+                Заполните ключевые параметры позиции. Изменения сразу попадут в каталог поставщиков.
               </DialogDescription>
             </DialogHeader>
 

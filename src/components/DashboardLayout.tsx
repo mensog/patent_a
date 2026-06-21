@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { Topbar } from './Topbar';
 import {
   LayoutDashboard, Search, FileText, ShoppingCart, Truck,
-  Package, Upload, Map, ChevronLeft, ChevronRight
+  Package, Upload, Map, ChevronLeft, ChevronRight, Building2, Factory
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -15,19 +15,19 @@ interface NavItem {
 }
 
 const buyerNav: NavItem[] = [
-  { label: 'Обзор', to: '/buyer', icon: <LayoutDashboard className="h-4 w-4" /> },
+  { label: 'Дашборд', to: '/buyer', icon: <LayoutDashboard className="h-4 w-4" /> },
   { label: 'Каталог', to: '/buyer/catalog', icon: <Search className="h-4 w-4" /> },
   { label: 'Запросы (RFQ)', to: '/buyer/rfq', icon: <FileText className="h-4 w-4" /> },
   { label: 'Заказы', to: '/buyer/orders', icon: <ShoppingCart className="h-4 w-4" /> },
 ];
 
 const supplierNav: NavItem[] = [
-  { label: 'Обзор', to: '/supplier', icon: <LayoutDashboard className="h-4 w-4" /> },
+  { label: 'Дашборд', to: '/supplier', icon: <LayoutDashboard className="h-4 w-4" /> },
   { label: 'Предложения', to: '/supplier/offers', icon: <Package className="h-4 w-4" /> },
-  { label: 'Импорт прайса', to: '/supplier/import', icon: <Upload className="h-4 w-4" /> },
+  { label: 'Импорт прайсов', to: '/supplier/import', icon: <Upload className="h-4 w-4" /> },
   { label: 'Запросы (RFQ)', to: '/supplier/rfq', icon: <FileText className="h-4 w-4" /> },
   { label: 'Отгрузки', to: '/supplier/shipments', icon: <Truck className="h-4 w-4" /> },
-  { label: 'Маршруты', to: '/supplier/routes', icon: <Map className="h-4 w-4" /> },
+  { label: 'Маршруты (VRP)', to: '/supplier/routes', icon: <Map className="h-4 w-4" /> },
 ];
 
 export function DashboardLayout({ children, mode }: { children: ReactNode; mode: 'buyer' | 'supplier' }) {
@@ -38,8 +38,8 @@ export function DashboardLayout({ children, mode }: { children: ReactNode; mode:
   return (
     <div className="flex min-h-screen w-full">
       <aside className={cn(
-        'sticky top-0 flex h-screen flex-col bg-sidebar transition-all duration-200',
-        collapsed ? 'w-[56px]' : 'w-56'
+        'sticky top-0 flex h-screen shrink-0 flex-col bg-sidebar transition-all duration-200',
+        collapsed ? 'w-[58px]' : 'w-[246px]'
       )}>
         {/* Logo */}
         <div className="flex h-[var(--topbar-height)] items-center justify-between px-3 border-b border-sidebar-border">
@@ -48,14 +48,15 @@ export function DashboardLayout({ children, mode }: { children: ReactNode; mode:
               EcaMarket
             </Link>
           )}
-          <button onClick={() => setCollapsed(!collapsed)} className="rounded p-1 hover:bg-sidebar-accent transition-colors">
+          <button onClick={() => setCollapsed(!collapsed)} className="rounded p-1 hover:bg-sidebar-accent transition-colors" aria-label="Свернуть меню">
             {collapsed ? <ChevronRight className="h-3.5 w-3.5 text-sidebar-foreground" /> : <ChevronLeft className="h-3.5 w-3.5 text-sidebar-foreground" />}
           </button>
         </div>
 
         {/* Workspace label */}
         {!collapsed && (
-          <div className="mx-3 mt-3 mb-1 rounded-md bg-sidebar-accent px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-accent-foreground">
+          <div className="mx-3 mt-3 mb-1 flex items-center gap-2 rounded-md bg-sidebar-accent px-3 py-2 text-xs font-semibold text-sidebar-accent-foreground">
+            {mode === 'buyer' ? <Building2 className="h-3.5 w-3.5" /> : <Factory className="h-3.5 w-3.5" />}
             {mode === 'buyer' ? 'Покупатель' : 'Поставщик'}
           </div>
         )}
@@ -69,7 +70,7 @@ export function DashboardLayout({ children, mode }: { children: ReactNode; mode:
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] transition-colors',
+                  'flex items-center gap-2.5 rounded-md px-3 py-2.5 text-[13px] transition-colors',
                   active
                     ? 'bg-sidebar-accent text-sidebar-primary font-medium'
                     : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
@@ -83,11 +84,24 @@ export function DashboardLayout({ children, mode }: { children: ReactNode; mode:
           })}
         </nav>
 
+        <div className="border-t border-sidebar-border p-3">
+          <Link
+            to={mode === 'buyer' ? '/supplier' : '/buyer'}
+            className={cn(
+              'flex items-center gap-2 rounded-md px-3 py-2 text-xs text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+              collapsed && 'justify-center px-0'
+            )}
+            title={mode === 'buyer' ? 'Кабинет поставщика' : 'Кабинет покупателя'}
+          >
+            {mode === 'buyer' ? <Factory className="h-3.5 w-3.5" /> : <Building2 className="h-3.5 w-3.5" />}
+            {!collapsed && <span>{mode === 'buyer' ? 'Кабинет поставщика ->' : 'Кабинет покупателя ->'}</span>}
+          </Link>
+        </div>
       </aside>
 
       <div className="flex flex-1 flex-col min-w-0">
         <Topbar />
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto px-6 py-6">
           {children}
         </main>
       </div>

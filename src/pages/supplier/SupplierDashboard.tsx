@@ -2,7 +2,7 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { KPICard } from '@/components/KPICard';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Link } from 'react-router-dom';
-import { ArrowRight, FileText, Package } from 'lucide-react';
+import { ArrowRight, FileText, Package, Upload, Truck, Map } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -69,6 +69,22 @@ export default function SupplierDashboard() {
     enabled: !!companyId,
   });
 
+  const { data: quotes = [] } = useQuery({
+    queryKey: ['supplier-dashboard-quotes', companyId],
+    queryFn: async () => {
+      if (!companyId) return [];
+      const { data, error } = await supabase
+        .from('quotes')
+        .select('id, status, total_amount, created_at, rfq_id')
+        .eq('supplier_company_id', companyId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!companyId,
+  });
+
   const { data: company } = useQuery({
     queryKey: ['my-company', companyId],
     queryFn: async () => {
@@ -80,19 +96,44 @@ export default function SupplierDashboard() {
     enabled: !!companyId,
   });
 
+  const activeQuotes = quotes.filter((quote) => quote.status === 'sent' || quote.status === 'draft');
+  const acceptedQuotes = quotes.filter((quote) => quote.status === 'accepted');
+  const rejectedQuotes = quotes.filter((quote) => quote.status === 'rejected');
+  const shipmentAmountHint = quotes.reduce((sum, quote) => sum + Number(quote.total_amount ?? 0), 0);
   const kpis: KPI[] = [
-    { label: 'Запросы (приглашения)', value: String(rfqInvites.length), changeType: 'neutral' },
-    { label: 'Отгрузки', value: String(shipments.length), changeType: 'neutral' },
-    { label: 'Предложений', value: String(offers.length), changeType: 'neutral' },
+    { label: 'Входящие RFQ', value: String(rfqInvites.length), change: '+ новых', changeType: 'positive' },
+    { label: 'Активные КП', value: String(activeQuotes.length), change: activeQuotes.length ? 'в работе' : 'нет активных', changeType: 'neutral' },
+    { label: 'Заказы к отгрузке', value: String(shipments.length), change: `На ${formatCurrency(shipmentAmountHint)}`, changeType: 'neutral' },
+    { label: 'Импорт прайсов', value: 'Ok', change: offers.length ? `${offers.length} позиций` : 'нет позиций', changeType: offers.length ? 'positive' : 'neutral' },
   ];
+  const events = [
+    ...rfqInvites.slice(0, 2).map((rfq) => ({
+      id: `rfq-${rfq.id}`,
+      text: `Новый RFQ — ${rfq.title}`,
+      time: formatDate(rfq.created_at),
+      href: `/supplier/rfq/${rfq.id}`,
+    })),
+    ...quotes.slice(0, 2).map((quote) => ({
+      id: `quote-${quote.id}`,
+      text: `КП ${quote.id.slice(0, 6)} — статус ${quote.status}`,
+      time: formatDate(quote.created_at),
+      href: `/supplier/rfq/${quote.rfq_id}`,
+    })),
+    ...shipments.slice(0, 2).map((shipment) => ({
+      id: `shipment-${shipment.id}`,
+      text: `Отгрузка ${shipment.shipment_number ?? shipment.id.slice(0, 8)} — ${shipment.status}`,
+      time: formatDate(shipment.planned_date),
+      href: `/supplier/shipments/${shipment.id}`,
+    })),
+  ].slice(0, 4);
   const loading = rfqLoading || shipmentsLoading;
 
   return (
     <DashboardLayout mode="supplier">
-      <div className="space-y-6">
+      <div className="demo-page">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="page-title">Центр управления</h1>
+            <h1 className="page-title">Панель поставщика</h1>
             {company && <p className="mt-0.5 text-sm text-muted-foreground">{company.name}{company.inn ? ` · ИНН ${company.inn}` : ''}</p>}
           </div>
           <div className="flex items-center gap-2">
@@ -104,7 +145,7 @@ export default function SupplierDashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {kpis.map((k, i) => <KPICard key={i} kpi={k} />)}
         </div>
 
@@ -154,33 +195,99 @@ export default function SupplierDashboard() {
             </div>
           </div>
 
-          {/* Offers summary */}
           <div className="card-panel">
             <div className="flex items-center justify-between px-5 pt-5 pb-0">
-              <h3 className="section-title">Каталог предложений</h3>
-              <Link to="/supplier/offers" className="text-xs font-medium text-primary hover:underline">Все →</Link>
+              <h3 className="section-title">Последние события</h3>
             </div>
-            <div className="p-5 space-y-2">
-              {offersLoading ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">Загрузка…</p>
-              ) : offers.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">Нет предложений</p>
+            <div className="p-5">
+              {loading ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">Загрузка...</p>
+              ) : events.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">Нет событий</p>
               ) : (
-                offers.map(o => (
-                  <div key={o.id} className="flex items-center justify-between rounded-md border p-3 hover:bg-muted/40 transition-colors">
-                    <div>
-                      <p className="text-sm font-medium">{o.materials?.name ?? '—'}</p>
-                      <p className="text-xs text-muted-foreground">Остаток: {o.stock ?? 0}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold tabular-nums">{formatCurrency(o.price)}</p>
-                      <span className={`inline-flex h-1.5 w-1.5 rounded-full ${o.is_active ? 'bg-success' : 'bg-muted-foreground'}`} />
-                    </div>
-                  </div>
-                ))
+                <div className="space-y-4">
+                  {events.map(event => (
+                    <Link key={event.id} to={event.href} className="flex gap-3 text-sm group">
+                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                      <span>
+                        <span className="block font-medium leading-snug group-hover:text-primary">{event.text}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">{event.time}</span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
               )}
             </div>
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-6">
+          <div className="card-panel p-5">
+            <h3 className="section-title mb-5">Мои предложения</h3>
+            {offersLoading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">Загрузка...</p>
+            ) : offers.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">Нет предложений</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="table-header pb-3 text-left">Материал</th>
+                    <th className="table-header pb-3 text-right">Цена</th>
+                    <th className="table-header pb-3 text-right">Остаток</th>
+                    <th className="table-header pb-3 text-center">Статус</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {offers.map(o => (
+                    <tr key={o.id} className="border-b last:border-0">
+                      <td className="py-3 font-medium">{o.materials?.name ?? '—'}</td>
+                      <td className="py-3 text-right font-semibold tabular-nums">{formatCurrency(o.price)}</td>
+                      <td className="py-3 text-right text-muted-foreground tabular-nums">{o.stock ?? 0}</td>
+                      <td className="py-3 text-center">
+                        <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ${o.is_active ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}`}>
+                          {o.is_active ? 'Активно' : 'Нет в наличии'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="grid gap-6">
+            <div className="card-panel p-5">
+              <h3 className="section-title mb-5">КП по статусам</h3>
+              <div className="flex items-center gap-8">
+                <div className="h-32 w-32 rounded-full bg-[conic-gradient(hsl(var(--success))_0_50%,hsl(var(--primary))_50%_82%,hsl(var(--destructive))_82%_100%)] p-7">
+                  <div className="h-full w-full rounded-full bg-card" />
+                </div>
+                <div className="space-y-2 text-sm">
+                  <p><span className="mr-2 inline-flex h-3 w-3 rounded-sm bg-success" />Принятые: {acceptedQuotes.length}</p>
+                  <p><span className="mr-2 inline-flex h-3 w-3 rounded-sm bg-primary" />На рассмотрении: {activeQuotes.length}</p>
+                  <p><span className="mr-2 inline-flex h-3 w-3 rounded-sm bg-destructive" />Отклонённые: {rejectedQuotes.length}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="card-panel p-5">
+              <h3 className="section-title mb-5">Быстрые действия</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { to: '/supplier/import', label: 'Импорт прайса', icon: <Upload className="h-4 w-4" /> },
+                  { to: '/supplier/rfq', label: 'Ответить на RFQ', icon: <FileText className="h-4 w-4" /> },
+                  { to: '/supplier/shipments', label: 'Управление отгрузками', icon: <Truck className="h-4 w-4" /> },
+                  { to: '/supplier/routes', label: 'Планирование маршрутов', icon: <Map className="h-4 w-4" /> },
+                ].map(action => (
+                  <Link key={action.to} to={action.to} className="flex min-h-16 items-center justify-between rounded-md border px-4 py-3 text-sm font-semibold transition-colors hover:bg-muted/40 hover:text-primary">
+                    <span>{action.label}</span>
+                    {action.icon}
+                  </Link>
+                ))}
+              </div>
+            </div>
+        </div>
         </div>
       </div>
     </DashboardLayout>

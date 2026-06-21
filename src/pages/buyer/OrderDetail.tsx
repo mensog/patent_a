@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, MapPin, Truck } from 'lucide-react';
+import { ArrowLeft, Download, FileText, MapPin, Truck } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency, formatDate, getDashboardMode } from '@/lib/app-utils';
+import { createNotificationsForCompanyUsers, createNotificationsForUsers } from '@/lib/notifications';
 import type { OrderItem, OrderWithCompanies, Shipment } from '@/types/app';
 
 function buildShipmentNumber() {
@@ -143,19 +144,29 @@ export default function OrderDetail() {
         throw shipmentItemsError;
       }
 
-      if (order.created_by) {
-        const { error: notificationError } = await supabase.from('notifications').insert({
-          user_id: order.created_by,
-          type: 'shipment',
-          title: 'Создана отгрузка по заказу',
-          body: `По заказу ${order.order_number ? `#${order.order_number}` : ''} создана новая отгрузка.`,
-          related_entity_id: shipment.id,
-          related_entity_type: 'shipment',
-        });
+      if (order.status === 'confirmed') {
+        const { error: orderStatusError } = await supabase
+          .from('orders')
+          .update({ status: 'in_progress' })
+          .eq('id', order.id);
 
-        if (notificationError) {
-          console.warn('Не удалось отправить уведомление о новой отгрузке:', notificationError.message);
+        if (orderStatusError) {
+          console.warn('Не удалось обновить статус заказа после создания отгрузки:', orderStatusError.message);
         }
+      }
+
+      const notificationPayload = {
+        type: 'shipment' as const,
+        title: 'Создана отгрузка по заказу',
+        body: `По заказу ${order.order_number ? `#${order.order_number}` : ''} создана новая отгрузка${plannedDate ? ` на ${formatDate(plannedDate)}` : ''}.`,
+        related_entity_id: shipment.id,
+        related_entity_type: 'shipment',
+      };
+
+      if (order.created_by) {
+        await createNotificationsForUsers([order.created_by], notificationPayload);
+      } else if (order.buyer_company_id) {
+        await createNotificationsForCompanyUsers([order.buyer_company_id], notificationPayload);
       }
 
       return shipment;
@@ -199,10 +210,32 @@ export default function OrderDetail() {
     { label: 'Отгружен', done: ['shipped', 'received', 'closed'].includes(order.status), active: order.status === 'shipped' },
     { label: 'Получен', done: ['received', 'closed'].includes(order.status), active: order.status === 'received' },
   ];
+  const documentItems = [
+    { title: `Счёт ${order.order_number ? `#${order.order_number}` : ''}`, kind: 'Счёт' },
+    { title: `Спецификация к заказу ${order.order_number ? `#${order.order_number}` : ''}`, kind: 'Спецификация' },
+    { title: 'Договор поставки', kind: 'Договор' },
+  ];
+  const downloadDocument = (title: string) => {
+    const lines = [
+      'EcaMarket procurement document',
+      title,
+      `Заказ: ${order.order_number ?? order.id}`,
+      `Поставщик: ${order.companies?.name ?? '—'}`,
+      `Покупатель: ${order.buyer?.name ?? '—'}`,
+      `Сумма: ${formatCurrency(order.total_amount)}`,
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${title.replace(/[^\p{L}\p{N}]+/gu, '_')}.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <DashboardLayout mode={mode}>
-      <div className="space-y-6">
+      <div className="demo-page">
         <div>
           <Link to={ordersListHref} className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors mb-2">
             <ArrowLeft className="h-3 w-3" /> {mode === 'supplier' ? 'К отгрузкам и заказам' : 'К заказам'}
@@ -211,7 +244,7 @@ export default function OrderDetail() {
             <div>
               <h1 className="page-title">Заказ {order.order_number ? `#${order.order_number}` : ''}</h1>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                {order.companies?.name ?? '—'} · создан {formatDate(order.created_at)}
+                {mode === 'buyer' ? `Заказ у ${order.companies?.name ?? 'поставщика'}` : `Заказ от ${order.buyer?.name ?? 'покупателя'}`} · создан {formatDate(order.created_at)}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -336,6 +369,27 @@ export default function OrderDetail() {
                 <p className="text-sm font-medium">{order.delivery_address}</p>
               </div>
             )}
+            <div className="card-panel p-5">
+              <h3 className="section-title mb-4">Документы</h3>
+              <div className="space-y-3">
+                {documentItems.map((documentItem) => (
+                  <button
+                    key={documentItem.title}
+                    className="flex w-full items-center justify-between rounded-md border px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                    onClick={() => downloadDocument(documentItem.title)}
+                  >
+                    <span className="flex items-center gap-3">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      <span>
+                        <span className="block text-sm font-semibold">{documentItem.title}</span>
+                        <span className="text-xs text-muted-foreground">{documentItem.kind}</span>
+                      </span>
+                    </span>
+                    <Download className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="card-panel p-5">
               <h3 className="section-title mb-3">Финансы</h3>
               <div className="space-y-2 text-sm">

@@ -23,7 +23,7 @@ export function Topbar({ title }: { title?: string }) {
   const displayName = profile?.full_name || 'Пользователь';
 
   return (
-    <header className="sticky top-0 z-30 flex h-[var(--topbar-height)] items-center justify-between border-b bg-card/80 backdrop-blur-sm px-6">
+    <header className="sticky top-0 z-30 flex h-[var(--topbar-height)] items-center justify-between border-b bg-card/90 px-6 backdrop-blur-sm">
       <div className="flex items-center gap-4">
         {title && <h1 className="text-sm font-semibold text-foreground">{title}</h1>}
       </div>
@@ -33,11 +33,11 @@ export function Topbar({ title }: { title?: string }) {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="ml-1 flex items-center gap-2 rounded-md border px-2.5 py-1.5 hover:bg-accent transition-colors">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <User className="h-3 w-3" />
+            <button className="ml-1 flex items-center gap-2 rounded-full border border-primary/10 bg-primary px-2 py-2 text-primary-foreground transition-colors hover:bg-primary/90">
+              <div className="flex h-5 w-5 items-center justify-center rounded-full">
+                <User className="h-3.5 w-3.5" />
               </div>
-              <span className="text-xs font-medium text-foreground">{displayName}</span>
+              <span className="sr-only">{displayName}</span>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">

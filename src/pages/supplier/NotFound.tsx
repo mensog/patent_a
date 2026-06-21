@@ -3,11 +3,6 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-/**
- * Legacy supplier RFQ demo screen used before Supabase wiring.
- * Kept as a lightweight placeholder so routes referencing it
- * don't crash, but without any mock data dependencies.
- */
 export default function SupplierNotFound() {
   return (
     <DashboardLayout mode="supplier">
@@ -21,12 +16,12 @@ export default function SupplierNotFound() {
               <FileText className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h1 className="page-title">Экран в разработке</h1>
-              <p className="text-sm text-muted-foreground">Этот макет с мок-данными отключён после перехода на Supabase.</p>
+              <h1 className="page-title">Раздел недоступен</h1>
+              <p className="text-sm text-muted-foreground">Перейдите в один из рабочих разделов кабинета поставщика.</p>
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            Для демо используйте страницы «Предложения», «Запросы» и «Отгрузки», которые уже читают данные из Supabase.
+            Доступны страницы «Предложения», «Запросы» и «Отгрузки».
           </p>
           <div className="flex gap-2">
             <Button asChild size="sm" className="text-xs h-8">

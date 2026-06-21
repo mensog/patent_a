@@ -165,12 +165,12 @@ export function TopbarSearch() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <div className="flex items-center rounded-md border bg-background px-3 py-1.5">
+        <div className="flex h-9 items-center rounded-md border bg-background px-3 shadow-sm">
           <Search className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
           <input
             value={search}
-            placeholder="Поиск материалов, RFQ, заказов, отгрузок..."
-            className="w-56 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder="Поиск..."
+            className="w-64 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             onFocus={() => setOpen(true)}
             onChange={(event) => setSearch(event.target.value)}
           />
