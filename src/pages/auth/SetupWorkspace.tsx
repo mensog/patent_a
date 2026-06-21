@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { getDefaultRouteForRole } from '@/lib/app-utils';
+import { AppLogo } from '@/components/AppLogo';
 import type { AppRole, CompanyType, Profile } from '@/types/app';
 
 function getRoleFromMetadata(profile: Profile | null, metadataRole: unknown): AppRole {
@@ -144,7 +145,7 @@ export default function SetupWorkspace() {
     <div className="flex min-h-screen items-center justify-center bg-background px-6 py-10">
       <div className="w-full max-w-lg rounded-xl border bg-card p-6 shadow-sm">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">EcaMarket setup</p>
+          <AppLogo className="text-foreground" />
           <h1 className="mt-2 text-2xl font-semibold text-foreground">Завершение настройки аккаунта</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Создаём рабочее пространство: профиль пользователя и компанию.

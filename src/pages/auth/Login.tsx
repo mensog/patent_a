@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { getDefaultRouteForRole } from '@/lib/app-utils';
+import { AppLogo } from '@/components/AppLogo';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -45,7 +46,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-lg font-bold text-foreground">EcaMarket</h1>
+          <AppLogo className="justify-center text-foreground" />
           <p className="mt-1 text-xs text-muted-foreground">Вход в личный кабинет</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">

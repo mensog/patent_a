@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, Search, FileText, BarChart3, Truck, Shield, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AppLogo } from '@/components/AppLogo';
 
 const benefits = [
   { icon: <Search className="h-5 w-5" />, title: 'Каталог и поиск', desc: 'Сырьё и промышленные материалы от верифицированных поставщиков. ГОСТ, остатки, минимальные партии — вся информация в одном окне.' },
@@ -21,7 +22,7 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-card">
       <nav className="sticky top-0 z-50 flex h-14 items-center justify-between border-b bg-card/95 backdrop-blur-sm px-8">
-        <span className="text-sm font-bold text-primary tracking-tight">EcaMarket</span>
+        <AppLogo className="text-foreground" />
         <div className="flex items-center gap-6">
           <a href="#benefits" className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">Возможности</a>
           <a href="#workflow" className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">Как это работает</a>
@@ -113,7 +114,7 @@ export default function Landing() {
 
       <footer className="border-t bg-card py-8">
         <div className="mx-auto max-w-5xl px-8 flex items-center justify-between">
-          <span className="text-xs font-semibold text-foreground">EcaMarket</span>
+          <AppLogo className="text-foreground" />
           <span className="text-[11px] text-muted-foreground">© 2025 EcaMarket. Все права защищены.</span>
         </div>
       </footer>
