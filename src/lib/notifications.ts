@@ -16,6 +16,22 @@ export async function createNotificationsForUsers(userIds: string[], payload: De
     return;
   }
 
+  const rpcPayload = {
+    _user_ids: uniqueUserIds,
+    _type: payload.type ?? 'system',
+    _title: payload.title,
+    _body: payload.body ?? null,
+    _related_entity_id: payload.related_entity_id ?? null,
+    _related_entity_type: payload.related_entity_type ?? payload.type ?? null,
+  };
+
+  const { error: rpcError } = await supabase.rpc('notify_users', rpcPayload);
+
+  if (!rpcError) {
+    return;
+  }
+
+  // Fallback keeps older local/demo databases working before the RPC migration is applied.
   const { error } = await supabase.from('notifications').insert(
     uniqueUserIds.map((userId) => ({
       user_id: userId,
@@ -28,7 +44,7 @@ export async function createNotificationsForUsers(userIds: string[], payload: De
   );
 
   if (error) {
-    console.warn('Не удалось создать уведомления:', error.message);
+    console.warn('Не удалось создать уведомления:', error.message || rpcError.message);
   }
 }
 
@@ -39,13 +55,26 @@ export async function createNotificationsForCompanyUsers(companyIds: string[], p
     return;
   }
 
+  const { error: rpcError } = await supabase.rpc('notify_company_users', {
+    _company_ids: uniqueCompanyIds,
+    _type: payload.type ?? 'system',
+    _title: payload.title,
+    _body: payload.body ?? null,
+    _related_entity_id: payload.related_entity_id ?? null,
+    _related_entity_type: payload.related_entity_type ?? payload.type ?? null,
+  });
+
+  if (!rpcError) {
+    return;
+  }
+
   const { data, error } = await supabase
     .from('profiles')
     .select('id')
     .in('company_id', uniqueCompanyIds);
 
   if (error) {
-    console.warn('Не удалось найти получателей уведомлений:', error.message);
+    console.warn('Не удалось найти получателей уведомлений:', error.message || rpcError.message);
     return;
   }
 

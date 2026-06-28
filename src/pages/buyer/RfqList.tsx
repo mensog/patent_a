@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Search, Trash2 } from 'lucide-react';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -45,13 +45,44 @@ const createItem = (index: number): RfqFormItem => ({
   comment: '',
 });
 
-const initialForm: RfqFormState = {
+const createInitialForm = (): RfqFormState => ({
   title: '',
   description: '',
   deliveryAddress: '',
   neededBy: '',
   items: [createItem(1)],
   supplierIds: [],
+});
+
+const RFQ_DRAFT_STORAGE_KEY = 'ecamarket:buyer-rfq-draft';
+
+const readStoredDraft = (): { isOpen: boolean; form: RfqFormState } | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const rawDraft = window.sessionStorage.getItem(RFQ_DRAFT_STORAGE_KEY);
+    return rawDraft ? JSON.parse(rawDraft) : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredDraft = (form: RfqFormState) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.sessionStorage.setItem(RFQ_DRAFT_STORAGE_KEY, JSON.stringify({ isOpen: true, form }));
+};
+
+const clearStoredDraft = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.sessionStorage.removeItem(RFQ_DRAFT_STORAGE_KEY);
 };
 
 export default function RfqList() {
@@ -60,9 +91,16 @@ export default function RfqList() {
   const queryClient = useQueryClient();
   const companyId = profile?.company_id;
   const [searchParams, setSearchParams] = useSearchParams();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState<RfqFormState>(initialForm);
+  const [dialogOpen, setDialogOpen] = useState(() => readStoredDraft()?.isOpen ?? false);
+  const [form, setForm] = useState<RfqFormState>(() => readStoredDraft()?.form ?? createInitialForm());
+  const [supplierSearch, setSupplierSearch] = useState('');
   const prefilledMaterialIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (dialogOpen) {
+      writeStoredDraft(form);
+    }
+  }, [dialogOpen, form]);
 
   const { data: rfqs = [], isLoading, error } = useQuery({
     queryKey: ['buyer-all-rfqs', companyId],
@@ -233,7 +271,7 @@ export default function RfqList() {
   const createMutation = useMutation({
     mutationFn: async (payload: RfqFormState) => {
       if (!companyId || !user?.id) {
-        throw new Error('Профиль пользователя не готов к созданию RFQ.');
+        throw new Error('Профиль пользователя не готов к созданию запроса на закупку.');
       }
 
       const validItems = payload.items.filter((item) => item.materialId && Number(item.quantity) > 0);
@@ -265,7 +303,7 @@ export default function RfqList() {
         .single();
 
       if (rfqError || !rfq) {
-        throw rfqError ?? new Error('Не удалось создать RFQ.');
+        throw rfqError ?? new Error('Не удалось создать запрос на закупку.');
       }
 
       const itemsPayload = validItems.map((item) => {
@@ -300,8 +338,8 @@ export default function RfqList() {
 
       await createNotificationsForCompanyUsers(payload.supplierIds, {
         type: 'rfq',
-        title: 'Новый запрос на КП',
-        body: `Покупатель опубликовал RFQ "${payload.title.trim()}". Проверьте позиции и подготовьте КП.`,
+        title: 'Новый запрос на коммерческое предложение',
+        body: `Покупатель опубликовал запрос на закупку "${payload.title.trim()}". Проверьте позиции и подготовьте коммерческое предложение.`,
         related_entity_id: rfq.id,
         related_entity_type: 'rfq',
       });
@@ -312,12 +350,13 @@ export default function RfqList() {
         queryClient.invalidateQueries({ queryKey: ['buyer-rfqs', companyId] }),
       ]);
       setDialogOpen(false);
-      setForm(initialForm);
-      toast({ title: 'RFQ создан' });
+      setForm(createInitialForm());
+      clearStoredDraft();
+      toast({ title: 'Запрос на закупку создан' });
     },
     onError: (mutationError: Error) => {
       toast({
-        title: 'Не удалось создать RFQ',
+        title: 'Не удалось создать запрос на закупку',
         description: mutationError.message,
         variant: 'destructive',
       });
@@ -340,9 +379,35 @@ export default function RfqList() {
     }));
   };
 
+  const selectSuppliers = (supplierIds: string[]) => {
+    setForm((current) => ({
+      ...current,
+      supplierIds: Array.from(new Set([...current.supplierIds, ...supplierIds])),
+    }));
+  };
+
+  const clearSuppliers = (supplierIds?: string[]) => {
+    setForm((current) => {
+      const idsToClear = supplierIds ? new Set(supplierIds) : null;
+      return {
+        ...current,
+        supplierIds: idsToClear
+          ? current.supplierIds.filter((supplierId) => !idsToClear.has(supplierId))
+          : [],
+      };
+    });
+  };
+
+  const normalizedSupplierSearch = supplierSearch.trim().toLocaleLowerCase('ru-RU');
+  const visibleSupplierCandidates = normalizedSupplierSearch
+    ? supplierCandidates.filter((supplier) => supplier.name.toLocaleLowerCase('ru-RU').includes(normalizedSupplierSearch))
+    : supplierCandidates;
+  const visibleSupplierIds = visibleSupplierCandidates.map((supplier) => supplier.id);
+  const selectedVisibleCount = visibleSupplierIds.filter((supplierId) => form.supplierIds.includes(supplierId)).length;
+
   const openDialog = () => {
     setForm({
-      ...initialForm,
+      ...createInitialForm(),
       items: [
         {
           ...createItem(1),
@@ -359,7 +424,7 @@ export default function RfqList() {
       <div className="demo-page">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="page-title">Запросы на КП (RFQ)</h1>
+            <h1 className="page-title">Запросы на закупку</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">{rfqs.length} запросов</p>
           </div>
           <Button className="gap-2 text-xs" onClick={openDialog}>
@@ -371,7 +436,7 @@ export default function RfqList() {
           {isLoading ? (
             <p className="py-16 text-center text-sm text-muted-foreground">Загрузка…</p>
           ) : error ? (
-            <p className="py-16 text-center text-sm text-destructive">Не удалось загрузить RFQ.</p>
+            <p className="py-16 text-center text-sm text-destructive">Не удалось загрузить запросы на закупку.</p>
           ) : rfqs.length === 0 ? (
             <p className="py-16 text-center text-sm text-muted-foreground">Нет запросов</p>
           ) : (
@@ -381,7 +446,7 @@ export default function RfqList() {
                   <th className="table-header p-4 text-left">№</th>
                   <th className="table-header p-4 text-left">Название</th>
                   <th className="table-header p-4 text-center">Позиции</th>
-                  <th className="table-header p-4 text-center">КП получено</th>
+                  <th className="table-header p-4 text-center">Предложений получено</th>
                   <th className="table-header p-4 text-center">Статус</th>
                   <th className="table-header p-4 text-left">Создан</th>
                   <th className="table-header p-4 text-left">Дедлайн</th>
@@ -411,15 +476,28 @@ export default function RfqList() {
           )}
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>Новый RFQ</DialogTitle>
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(nextOpen) => {
+            setDialogOpen(nextOpen);
+            if (!nextOpen) {
+              setForm(createInitialForm());
+              clearStoredDraft();
+            }
+          }}
+        >
+          <DialogContent
+            className="flex max-h-[92vh] max-w-4xl flex-col gap-0 overflow-hidden p-0"
+            onInteractOutside={(event) => event.preventDefault()}
+          >
+            <DialogHeader className="border-b px-6 py-4">
+              <DialogTitle>Новый запрос на закупку</DialogTitle>
               <DialogDescription>
                 Создайте запрос, добавьте позиции и пригласите поставщиков.
               </DialogDescription>
             </DialogHeader>
 
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1.5 md:col-span-2">
                 <Label className="text-xs">Название</Label>
@@ -462,16 +540,16 @@ export default function RfqList() {
                 </Button>
               </div>
 
-              <div className="space-y-3">
+              <div className="max-h-[34vh] space-y-2 overflow-y-auto pr-1">
                 {form.items.map((item, index) => (
-                  <div key={item.id} className="rounded-lg border p-4">
-                    <div className="mb-3 flex items-center justify-between">
+                  <div key={item.id} className="rounded-lg border p-3">
+                    <div className="mb-2 flex items-center justify-between">
                       <p className="text-sm font-medium text-foreground">Позиция {index + 1}</p>
                       {form.items.length > 1 && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 px-2 text-destructive hover:text-destructive"
+                          className="h-7 px-2 text-destructive hover:text-destructive"
                           onClick={() =>
                             setForm((current) => ({
                               ...current,
@@ -483,8 +561,8 @@ export default function RfqList() {
                         </Button>
                       )}
                     </div>
-                    <div className="grid gap-3 md:grid-cols-4">
-                      <div className="space-y-1.5 md:col-span-2">
+                    <div className="grid gap-2 md:grid-cols-12">
+                      <div className="space-y-1 md:col-span-5">
                         <Label className="text-xs">Материал</Label>
                         <select
                           value={item.materialId}
@@ -495,7 +573,7 @@ export default function RfqList() {
                               updateItem(item.id, 'unit', selectedMaterial.unit);
                             }
                           }}
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                          className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
                         >
                           <option value="">Выберите материал</option>
                           {materials.map((material) => (
@@ -505,15 +583,15 @@ export default function RfqList() {
                           ))}
                         </select>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-1 md:col-span-2">
                         <Label className="text-xs">Количество</Label>
                         <Input value={item.quantity} onChange={(event) => updateItem(item.id, 'quantity', event.target.value)} />
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-1 md:col-span-2">
                         <Label className="text-xs">Ед. изм.</Label>
                         <Input value={item.unit} onChange={(event) => updateItem(item.id, 'unit', event.target.value)} />
                       </div>
-                      <div className="space-y-1.5 md:col-span-4">
+                      <div className="space-y-1 md:col-span-3">
                         <Label className="text-xs">Комментарий</Label>
                         <Input value={item.comment} onChange={(event) => updateItem(item.id, 'comment', event.target.value)} />
                       </div>
@@ -523,30 +601,107 @@ export default function RfqList() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-foreground">Пригласить поставщиков</h3>
-              <div className="grid max-h-48 gap-2 overflow-auto rounded-lg border p-3 md:grid-cols-2">
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-3">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Пригласить поставщиков</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Выбрано {form.supplierIds.length} из {supplierCandidates.length}. Можно искать по названию компании.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={supplierCandidates.length === 0}
+                    onClick={() => selectSuppliers(supplierCandidates.map((supplier) => supplier.id))}
+                  >
+                    Выбрать всех
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={visibleSupplierCandidates.length === 0}
+                    onClick={() => selectSuppliers(visibleSupplierIds)}
+                  >
+                    Выбрать найденных
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={form.supplierIds.length === 0}
+                    onClick={() => clearSuppliers()}
+                  >
+                    Снять выделение
+                  </Button>
+                </div>
+              </div>
+
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={supplierSearch}
+                  onChange={(event) => setSupplierSearch(event.target.value)}
+                  placeholder="Найти поставщика по названию..."
+                  className="h-9 pl-9 text-sm"
+                />
+              </div>
+
+              <div className="grid max-h-44 gap-2 overflow-auto rounded-lg border bg-background p-2 md:grid-cols-2">
                 {supplierCandidates.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Нет доступных поставщиков с активными предложениями.</p>
+                  <p className="p-2 text-sm text-muted-foreground">Нет доступных поставщиков с активными предложениями.</p>
+                ) : visibleSupplierCandidates.length === 0 ? (
+                  <p className="p-2 text-sm text-muted-foreground">По такому запросу поставщиков не найдено.</p>
                 ) : (
-                  supplierCandidates.map((supplier) => (
-                    <label key={supplier.id} className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={form.supplierIds.includes(supplier.id)}
-                        onChange={() => toggleSupplier(supplier.id)}
-                      />
-                      {supplier.name}
-                    </label>
-                  ))
+                  visibleSupplierCandidates.map((supplier) => {
+                    const checked = form.supplierIds.includes(supplier.id);
+
+                    return (
+                      <label
+                        key={supplier.id}
+                        className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-sm transition-colors ${
+                          checked ? 'border-primary/40 bg-primary/5 text-foreground' : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleSupplier(supplier.id)}
+                        />
+                        <span className="min-w-0 flex-1 truncate">{supplier.name}</span>
+                      </label>
+                    );
+                  })
                 )}
               </div>
+
+              {visibleSupplierCandidates.length > 0 && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Показано {visibleSupplierCandidates.length}</span>
+                  <button
+                    type="button"
+                    className="font-medium text-primary hover:underline disabled:pointer-events-none disabled:text-muted-foreground"
+                    disabled={selectedVisibleCount === 0}
+                    onClick={() => clearSuppliers(visibleSupplierIds)}
+                  >
+                    Снять выделение с найденных ({selectedVisibleCount})
+                  </button>
+                </div>
+              )}
             </div>
 
-            <DialogFooter>
+            </div>
+
+            <DialogFooter className="border-t bg-card px-6 py-4">
               <Button variant="outline" onClick={() => setDialogOpen(false)}>Отмена</Button>
               <Button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending}>
-                {createMutation.isPending ? 'Создание…' : 'Создать RFQ'}
+                {createMutation.isPending ? 'Создание…' : 'Создать запрос'}
               </Button>
             </DialogFooter>
           </DialogContent>

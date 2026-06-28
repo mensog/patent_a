@@ -45,9 +45,9 @@ export function TopbarSearch() {
             collected.push({
               id: `rfq-${rfq.id}`,
               label: rfq.title,
-              description: 'RFQ',
+              description: 'Запрос на закупку',
               href: `/supplier/rfq/${rfq.id}`,
-              group: 'RFQ',
+              group: 'Закупки',
             });
           });
         }
@@ -116,9 +116,9 @@ export function TopbarSearch() {
           collected.push({
             id: `rfq-${rfq.id}`,
             label: rfq.title,
-            description: 'RFQ',
+            description: 'Запрос на закупку',
             href: `/buyer/rfq/${rfq.id}`,
-            group: 'RFQ',
+            group: 'Закупки',
           });
         });
 

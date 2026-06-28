@@ -853,10 +853,49 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_quote_as_order: {
+        Args: { _quote_id: string }
+        Returns: { order_id: string; order_number: string | null; already_exists: boolean }[]
+      }
+      create_shipment_for_order: {
+        Args: {
+          _order_id: string
+          _shipment_number?: string | null
+          _planned_date?: string | null
+          _driver_name?: string | null
+          _driver_phone?: string | null
+          _vehicle_info?: string | null
+          _tracking_number?: string | null
+          _route_note?: string | null
+        }
+        Returns: { shipment_id: string; shipment_number: string | null }[]
+      }
       can_access_order: { Args: { _order_id: string }; Returns: boolean }
       can_access_quote: { Args: { _quote_id: string }; Returns: boolean }
       can_access_rfq: { Args: { _rfq_id: string }; Returns: boolean }
       get_my_company_id: { Args: never; Returns: string }
+      notify_company_users: {
+        Args: {
+          _company_ids: string[]
+          _type: Database["public"]["Enums"]["notification_type"]
+          _title: string
+          _body?: string | null
+          _related_entity_id?: string | null
+          _related_entity_type?: string | null
+        }
+        Returns: undefined
+      }
+      notify_users: {
+        Args: {
+          _user_ids: string[]
+          _type: Database["public"]["Enums"]["notification_type"]
+          _title: string
+          _body?: string | null
+          _related_entity_id?: string | null
+          _related_entity_type?: string | null
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "buyer" | "supplier" | "manager" | "admin"

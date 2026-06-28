@@ -332,7 +332,7 @@ export default function Offers() {
                       <td className="px-5 py-3.5 text-center">
                         <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${offer.is_active ? 'bg-success/8 text-success border-success/20' : 'bg-muted text-muted-foreground border-border'}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${offer.is_active ? 'bg-success' : 'bg-muted-foreground'}`} />
-                          {offer.is_active ? 'Активна' : 'Нет'}
+                          {offer.is_active ? 'Активна' : 'Не активна'}
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right">

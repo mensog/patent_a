@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, FileText, MapPin, Truck } from 'lucide-react';
+import { ArrowLeft, Download, FileText, MapPin, QrCode, CreditCard, Landmark, Truck } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -13,7 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency, formatDate, getDashboardMode } from '@/lib/app-utils';
-import { createNotificationsForCompanyUsers, createNotificationsForUsers } from '@/lib/notifications';
+import { createNotificationsForCompanyUsers } from '@/lib/notifications';
 import type { OrderItem, OrderWithCompanies, Shipment } from '@/types/app';
 
 function buildShipmentNumber() {
@@ -91,6 +91,48 @@ export default function OrderDetail() {
     setRouteNote('');
   };
 
+  const payOrderMutation = useMutation({
+    mutationFn: async () => {
+      if (mode !== 'buyer') {
+        throw new Error('Оплату подтверждает покупатель.');
+      }
+      if (!order) {
+        throw new Error('Заказ не загружен.');
+      }
+      const { error } = await supabase
+        .from('orders')
+        .update({ payment_status: 'paid' })
+        .eq('id', order.id);
+      if (error) throw error;
+
+      if (order.supplier_company_id) {
+        await createNotificationsForCompanyUsers([order.supplier_company_id], {
+          type: 'order',
+          title: 'Покупатель отметил заказ как оплаченный',
+          body: `Заказ ${order.order_number ? `#${order.order_number}` : order.id.slice(0, 8)} отмечен как оплаченный.`,
+          related_entity_id: order.id,
+          related_entity_type: 'order',
+        });
+      }
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['order', id] }),
+        queryClient.invalidateQueries({ queryKey: ['buyer-orders-list', profile?.company_id] }),
+        queryClient.invalidateQueries({ queryKey: ['buyer-orders', profile?.company_id] }),
+        queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+      ]);
+      toast({ title: 'Оплата зафиксирована', description: 'Статус заказа обновлён.' });
+    },
+    onError: (mutationError: Error) => {
+      toast({
+        title: 'Не удалось обновить оплату',
+        description: mutationError.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
   const createShipmentMutation = useMutation({
     mutationFn: async () => {
       if (mode !== 'supplier') {
@@ -109,67 +151,31 @@ export default function OrderDetail() {
         throw new Error('В заказе нет позиций для отгрузки.');
       }
 
-      const { data: shipment, error: shipmentError } = await supabase
-        .from('shipments')
-        .insert({
-          order_id: order.id,
-          supplier_company_id: profile.company_id,
-          shipment_number: buildShipmentNumber(),
-          status: 'planned',
-          planned_date: plannedDate || null,
-          driver_name: driverName.trim() || null,
-          driver_phone: driverPhone.trim() || null,
-          vehicle_info: vehicleInfo.trim() || null,
-          tracking_number: trackingNumber.trim() || null,
-          route_note: routeNote.trim() || null,
-        })
-        .select('id, shipment_number')
-        .single();
+      const { data, error } = await supabase.rpc('create_shipment_for_order', {
+        _order_id: order.id,
+        _shipment_number: buildShipmentNumber(),
+        _planned_date: plannedDate || null,
+        _driver_name: driverName.trim() || null,
+        _driver_phone: driverPhone.trim() || null,
+        _vehicle_info: vehicleInfo.trim() || null,
+        _tracking_number: trackingNumber.trim() || null,
+        _route_note: routeNote.trim() || null,
+      });
 
-      if (shipmentError || !shipment) {
-        throw shipmentError ?? new Error('Не удалось создать отгрузку.');
+      if (error) {
+        throw error;
       }
 
-      const shipmentItemsPayload = items.map((item) => ({
-        shipment_id: shipment.id,
-        order_item_id: item.id,
-        quantity: Number(item.quantity),
-      }));
+      const shipment = data?.[0];
 
-      const { error: shipmentItemsError } = await supabase
-        .from('shipment_items')
-        .insert(shipmentItemsPayload);
-
-      if (shipmentItemsError) {
-        throw shipmentItemsError;
+      if (!shipment?.shipment_id) {
+        throw new Error('База данных не вернула созданную отгрузку.');
       }
 
-      if (order.status === 'confirmed') {
-        const { error: orderStatusError } = await supabase
-          .from('orders')
-          .update({ status: 'in_progress' })
-          .eq('id', order.id);
-
-        if (orderStatusError) {
-          console.warn('Не удалось обновить статус заказа после создания отгрузки:', orderStatusError.message);
-        }
-      }
-
-      const notificationPayload = {
-        type: 'shipment' as const,
-        title: 'Создана отгрузка по заказу',
-        body: `По заказу ${order.order_number ? `#${order.order_number}` : ''} создана новая отгрузка${plannedDate ? ` на ${formatDate(plannedDate)}` : ''}.`,
-        related_entity_id: shipment.id,
-        related_entity_type: 'shipment',
+      return {
+        id: shipment.shipment_id,
+        shipment_number: shipment.shipment_number,
       };
-
-      if (order.created_by) {
-        await createNotificationsForUsers([order.created_by], notificationPayload);
-      } else if (order.buyer_company_id) {
-        await createNotificationsForCompanyUsers([order.buyer_company_id], notificationPayload);
-      }
-
-      return shipment;
     },
     onSuccess: async (shipment) => {
       await Promise.all([
@@ -205,10 +211,10 @@ export default function OrderDetail() {
   if (!order) return <DashboardLayout mode={mode}><p className="py-16 text-center text-sm text-muted-foreground">Заказ не найден</p></DashboardLayout>;
 
   const statusSteps = [
-    { label: 'Подтверждён', done: ['confirmed', 'in_progress', 'shipped', 'received', 'closed'].includes(order.status), active: order.status === 'confirmed' },
-    { label: 'В работе', done: ['in_progress', 'shipped', 'received', 'closed'].includes(order.status), active: order.status === 'in_progress' },
-    { label: 'Отгружен', done: ['shipped', 'received', 'closed'].includes(order.status), active: order.status === 'shipped' },
-    { label: 'Получен', done: ['received', 'closed'].includes(order.status), active: order.status === 'received' },
+    { label: 'Заказ подтверждён', done: ['confirmed', 'in_progress', 'shipped', 'received', 'closed'].includes(order.status), active: order.status === 'confirmed' },
+    { label: 'Поставщик готовит груз', done: ['in_progress', 'shipped', 'received', 'closed'].includes(order.status), active: order.status === 'in_progress' },
+    { label: 'Передан в доставку', done: ['shipped', 'received', 'closed'].includes(order.status), active: order.status === 'shipped' },
+    { label: 'Получен покупателем', done: ['received', 'closed'].includes(order.status), active: order.status === 'received' },
   ];
   const documentItems = [
     { title: `Счёт ${order.order_number ? `#${order.order_number}` : ''}`, kind: 'Счёт' },
@@ -388,6 +394,30 @@ export default function OrderDetail() {
                     <Download className="h-4 w-4 text-muted-foreground" />
                   </button>
                 ))}
+              </div>
+            </div>
+            <div className="card-panel p-5">
+              <h3 className="section-title mb-3">Оплата заказа</h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <span className="flex items-center gap-2"><Landmark className="h-4 w-4 text-primary" /> Банковский перевод по счёту</span>
+                  <StatusBadge status={order.payment_status} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-md border p-3">
+                    <div className="flex items-center gap-2 font-medium"><QrCode className="h-4 w-4 text-primary" /> QR / СБП</div>
+                    <div className="mt-3 flex h-24 items-center justify-center rounded bg-muted text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">QR для оплаты</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="flex items-center gap-2 font-medium"><CreditCard className="h-4 w-4 text-primary" /> Корпоративная карта</div>
+                    <p className="mt-3 text-xs text-muted-foreground">Счет оплаты</p>
+                  </div>
+                </div>
+                {mode === 'buyer' && order.payment_status !== 'paid' && (
+                  <Button className="w-full text-xs" onClick={() => payOrderMutation.mutate()} disabled={payOrderMutation.isPending}>
+                    {payOrderMutation.isPending ? 'Сохранение…' : 'Отметить как оплаченный'}
+                  </Button>
+                )}
               </div>
             </div>
             <div className="card-panel p-5">

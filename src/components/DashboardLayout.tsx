@@ -19,15 +19,15 @@ interface NavItem {
 const buyerNav: NavItem[] = [
   { label: 'Дашборд', to: '/buyer', icon: <LayoutDashboard className="h-4 w-4" /> },
   { label: 'Каталог', to: '/buyer/catalog', icon: <Search className="h-4 w-4" /> },
-  { label: 'Запросы (RFQ)', to: '/buyer/rfq', icon: <FileText className="h-4 w-4" /> },
+  { label: 'Запросы на закупку', to: '/buyer/rfq', icon: <FileText className="h-4 w-4" /> },
   { label: 'Заказы', to: '/buyer/orders', icon: <ShoppingCart className="h-4 w-4" /> },
 ];
 
 const supplierNav: NavItem[] = [
   { label: 'Дашборд', to: '/supplier', icon: <LayoutDashboard className="h-4 w-4" /> },
   { label: 'Предложения', to: '/supplier/offers', icon: <Package className="h-4 w-4" /> },
-  { label: 'Импорт прайсов', to: '/supplier/import', icon: <Upload className="h-4 w-4" /> },
-  { label: 'Запросы (RFQ)', to: '/supplier/rfq', icon: <FileText className="h-4 w-4" /> },
+  { label: 'Импорт прайс-листа', to: '/supplier/import', icon: <Upload className="h-4 w-4" /> },
+  { label: 'Запросы покупателей', to: '/supplier/rfq', icon: <FileText className="h-4 w-4" /> },
   { label: 'Отгрузки', to: '/supplier/shipments', icon: <Truck className="h-4 w-4" /> },
   { label: 'Маршруты (VRP)', to: '/supplier/routes', icon: <Map className="h-4 w-4" /> },
 ];

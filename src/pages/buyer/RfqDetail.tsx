@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { formatCurrency, formatDate } from '@/lib/app-utils';
+import { createNotificationsForUsers } from '@/lib/notifications';
 import type { QuoteItem, QuoteWithCompany, Rfq, RfqItemWithMaterial } from '@/types/app';
 
 type AdvisorPreset = 'balanced' | 'price' | 'speed' | 'reliability';
@@ -354,44 +355,14 @@ export default function RfqDetail() {
     [quotes],
   );
 
-  const emitNotifications = async (
-    notifications: Array<{
-      user_id: string;
-      title: string;
-      body?: string | null;
-      type?: 'rfq' | 'quote' | 'order' | 'shipment' | 'system';
-      related_entity_id?: string | null;
-      related_entity_type?: string | null;
-    }>,
-  ) => {
-    if (!notifications.length) {
-      return;
-    }
-
-    const { error } = await supabase.from('notifications').insert(
-      notifications.map((notification) => ({
-        user_id: notification.user_id,
-        title: notification.title,
-        body: notification.body ?? null,
-        type: notification.type ?? 'system',
-        related_entity_id: notification.related_entity_id ?? null,
-        related_entity_type: notification.related_entity_type ?? null,
-      })),
-    );
-
-    if (error) {
-      console.warn('Не удалось записать уведомления:', error.message);
-    }
-  };
-
   const rejectQuoteMutation = useMutation({
     mutationFn: async (quote: QuoteWithCompany) => {
       if (!id) {
-        throw new Error('RFQ не определён.');
+        throw new Error('Запрос на закупку не определён.');
       }
 
       if (orderByQuoteId.has(quote.id)) {
-        throw new Error('Нельзя отклонить КП, на основе которого уже создан заказ.');
+        throw new Error('Нельзя отклонить коммерческое предложение, на основе которого уже создан заказ.');
       }
 
       const { error: updateError } = await supabase
@@ -428,16 +399,13 @@ export default function RfqDetail() {
       }
 
       if (quote.created_by) {
-        await emitNotifications([
-          {
-            user_id: quote.created_by,
-            type: 'quote',
-            title: 'КП отклонено',
-            body: `Покупатель отклонил ваше предложение по запросу "${rfq?.title ?? 'RFQ'}".`,
-            related_entity_id: id,
-            related_entity_type: 'rfq',
-          },
-        ]);
+        await createNotificationsForUsers([quote.created_by], {
+          type: 'quote',
+          title: 'Коммерческое предложение отклонено',
+          body: `Покупатель отклонил ваше предложение по запросу "${rfq?.title ?? 'запрос'}".`,
+          related_entity_id: id,
+          related_entity_type: 'rfq',
+        });
       }
     },
     onSuccess: async () => {
@@ -447,11 +415,11 @@ export default function RfqDetail() {
         queryClient.invalidateQueries({ queryKey: ['notifications'] }),
       ]);
 
-      toast({ title: 'КП отклонено' });
+      toast({ title: 'Коммерческое предложение отклонено' });
     },
     onError: (mutationError: Error) => {
       toast({
-        title: 'Не удалось отклонить КП',
+        title: 'Не удалось отклонить коммерческое предложение',
         description: mutationError.message,
         variant: 'destructive',
       });
@@ -460,163 +428,28 @@ export default function RfqDetail() {
 
   const acceptQuoteMutation = useMutation({
     mutationFn: async (quote: QuoteWithCompany) => {
-      if (!id || !rfq || !user?.id) {
-        throw new Error('Профиль пользователя или RFQ не готовы.');
+      if (!user?.id) {
+        throw new Error('Пользователь не авторизован.');
       }
 
-      const { data: existingOrderForQuote, error: existingOrderError } = await supabase
-        .from('orders')
-        .select('id, order_number')
-        .eq('quote_id', quote.id)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc('accept_quote_as_order', { _quote_id: quote.id });
 
-      if (existingOrderError) {
-        throw existingOrderError;
+      if (error) {
+        throw error;
       }
 
-      if (existingOrderForQuote) {
-        return {
-          order: existingOrderForQuote,
-          alreadyExists: true,
-        };
+      const result = data?.[0];
+
+      if (!result?.order_id) {
+        throw new Error('База данных не вернула созданный заказ.');
       }
-
-      const { data: freshQuote, error: freshQuoteError } = await supabase
-        .from('quotes')
-        .select('*, companies!quotes_supplier_company_id_fkey(name), quote_items(*)')
-        .eq('id', quote.id)
-        .single();
-
-      if (freshQuoteError || !freshQuote) {
-        throw freshQuoteError ?? new Error('Не удалось загрузить выбранное КП.');
-      }
-
-      const quoteWithItems = freshQuote as QuoteWithItems;
-      const quoteItems = quoteWithItems.quote_items ?? [];
-
-      if (quoteWithItems.status !== 'sent' && quoteWithItems.status !== 'accepted') {
-        throw new Error('КП уже нельзя принять в текущем статусе.');
-      }
-
-      if (!quoteItems.length) {
-        throw new Error('У выбранного КП нет позиций. Заказ создать нельзя.');
-      }
-
-      const amountWithoutVat = toNumeric(
-        quoteWithItems.total_without_vat,
-        quoteItems.reduce((sum, item) => sum + toNumeric(item.line_total, toNumeric(item.price) * toNumeric(item.quantity)), 0),
-      );
-      const vatAmount = toNumeric(quoteWithItems.vat_amount, Math.round(amountWithoutVat * 0.2));
-      const deliveryCost = toNumeric(quoteWithItems.delivery_cost, 0);
-      const totalAmount = toNumeric(quoteWithItems.total_amount, amountWithoutVat + vatAmount + deliveryCost);
-
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          buyer_company_id: rfq.buyer_company_id,
-          supplier_company_id: quoteWithItems.supplier_company_id,
-          rfq_id: id,
-          quote_id: quoteWithItems.id,
-          created_by: user.id,
-          delivery_address: rfq.delivery_address ?? null,
-          comment: `Создано из RFQ "${rfq.title}"`,
-          status: 'confirmed',
-          payment_status: 'pending',
-          amount_without_vat: amountWithoutVat,
-          vat_amount: vatAmount,
-          delivery_cost: deliveryCost,
-          total_amount: totalAmount,
-        })
-        .select('id, order_number')
-        .single();
-
-      if (orderError || !order) {
-        throw orderError ?? new Error('Не удалось создать заказ.');
-      }
-
-      const orderItemsPayload = quoteItems.map((item) => ({
-        order_id: order.id,
-        material_id: item.material_id,
-        material_name: item.material_name ?? 'Материал',
-        quantity: toNumeric(item.quantity, 0),
-        unit: item.unit || 'шт',
-        price: toNumeric(item.price, 0),
-        vat_rate: toNumeric(item.vat_rate, 20),
-        line_total: toNumeric(item.line_total, toNumeric(item.price, 0) * toNumeric(item.quantity, 0)),
-        supplier_offer_id: null,
-      }));
-
-      const { error: orderItemsError } = await supabase.from('order_items').insert(orderItemsPayload);
-
-      if (orderItemsError) {
-        throw orderItemsError;
-      }
-
-      const { error: acceptedError } = await supabase
-        .from('quotes')
-        .update({ status: 'accepted' })
-        .eq('id', quoteWithItems.id);
-
-      if (acceptedError) {
-        throw acceptedError;
-      }
-
-      const { data: quoteStatuses, error: quoteStatusesError } = await supabase
-        .from('quotes')
-        .select('status')
-        .eq('rfq_id', id);
-
-      if (quoteStatusesError) {
-        throw quoteStatusesError;
-      }
-
-      const hasOpenQuotes = (quoteStatuses ?? []).some(
-        (quoteStatusRow) => quoteStatusRow.status === 'sent' || quoteStatusRow.status === 'draft',
-      );
-      const nextRfqStatus = hasOpenQuotes ? 'quoted' : 'closed';
-
-      const { error: rfqStatusError } = await supabase
-        .from('rfqs')
-        .update({ status: nextRfqStatus })
-        .eq('id', id);
-
-      if (rfqStatusError) {
-        throw rfqStatusError;
-      }
-
-      await emitNotifications(
-        [
-          quoteWithItems.created_by
-            ? {
-                user_id: quoteWithItems.created_by,
-                type: 'order',
-                title: 'КП принято, создан заказ',
-                body: `По вашему предложению для RFQ "${rfq.title}" создан заказ.`,
-                related_entity_id: order.id,
-                related_entity_type: 'order',
-              }
-            : null,
-          {
-            user_id: user.id,
-            type: 'order',
-            title: 'Заказ создан из RFQ',
-            body: `Создан заказ по принятому КП (${quoteWithItems.companies?.name ?? 'поставщик'}).`,
-            related_entity_id: order.id,
-            related_entity_type: 'order',
-          },
-        ].filter(Boolean) as Array<{
-          user_id: string;
-          title: string;
-          body?: string | null;
-          type?: 'rfq' | 'quote' | 'order' | 'shipment' | 'system';
-          related_entity_id?: string | null;
-          related_entity_type?: string | null;
-        }>,
-      );
 
       return {
-        order,
-        alreadyExists: false,
+        order: {
+          id: result.order_id,
+          order_number: result.order_number,
+        },
+        alreadyExists: result.already_exists,
       };
     },
     onSuccess: async (result) => {
@@ -634,14 +467,14 @@ export default function RfqDetail() {
 
       if (result.alreadyExists) {
         toast({
-          title: 'КП уже принято ранее',
+          title: 'Коммерческое предложение уже принято ранее',
           description: result.order.order_number
-            ? `Заказ #${result.order.order_number} уже создан для этого КП.`
-            : 'Заказ уже создан для этого КП.',
+            ? `Заказ #${result.order.order_number} уже создан для этого коммерческого предложения.`
+            : 'Заказ уже создан для этого коммерческого предложения.',
         });
       } else {
         toast({
-          title: 'КП принято',
+          title: 'Коммерческое предложение принято',
           description: result.order.order_number
             ? `Заказ #${result.order.order_number} создан и доступен в разделе заказов.`
             : 'Заказ создан и доступен в разделе заказов.',
@@ -650,7 +483,7 @@ export default function RfqDetail() {
     },
     onError: (mutationError: Error) => {
       toast({
-        title: 'Не удалось принять КП',
+        title: 'Не удалось принять коммерческое предложение',
         description: mutationError.message,
         variant: 'destructive',
       });
@@ -674,7 +507,7 @@ export default function RfqDetail() {
   if (hasError) {
     return (
       <DashboardLayout mode="buyer">
-        <p className="py-16 text-center text-sm text-destructive">Не удалось загрузить данные RFQ.</p>
+        <p className="py-16 text-center text-sm text-destructive">Не удалось загрузить данные запроса на закупку.</p>
       </DashboardLayout>
     );
   }
@@ -716,7 +549,7 @@ export default function RfqDetail() {
         {rfqOrders.length > 0 && (
           <div className="rounded-lg border border-success/30 bg-success/[0.06] p-4">
             <p className="text-sm font-semibold text-foreground">
-              По этому RFQ уже создано заказов: {rfqOrders.length}.
+              По этому запросу уже создано заказов: {rfqOrders.length}.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>Общая сумма: {formatCurrency(createdOrdersTotalAmount)}</span>
@@ -736,11 +569,11 @@ export default function RfqDetail() {
             <p className="mt-1.5 text-xl font-bold tabular-nums">{items.length}</p>
           </div>
           <div className="kpi-card">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Получено КП</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Получено предложений</p>
             <p className="mt-1.5 text-xl font-bold tabular-nums text-primary">{quotes.length}</p>
           </div>
           <div className="kpi-card">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Мин. сумма КП</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Мин. сумма предложения</p>
             <p className="mt-1.5 text-xl font-bold tabular-nums text-success">
               {minQuoteAmount === null ? '—' : formatCurrency(minQuoteAmount)}
             </p>
@@ -837,7 +670,7 @@ export default function RfqDetail() {
                       onClick={() => recommendedQuote && acceptQuoteMutation.mutate(recommendedQuote)}
                     >
                       <Sparkles className="h-3 w-3" />
-                      {acceptQuoteMutation.isPending ? 'Создание заказа…' : 'Принять рекомендованное КП'}
+                      {acceptQuoteMutation.isPending ? 'Создание заказа…' : 'Принять рекомендованное предложение'}
                     </Button>
                   )}
                 </div>
@@ -845,38 +678,6 @@ export default function RfqDetail() {
             </div>
           </div>
         )}
-
-        <div className="card-panel">
-          <div className="px-5 pt-5 pb-0">
-            <h3 className="section-title">Позиции запроса</h3>
-          </div>
-          <div className="p-5">
-            {items.length === 0 ? (
-              <p className="py-4 text-center text-sm text-muted-foreground">Нет позиций</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="table-header px-4 py-2.5 text-left">№</th>
-                    <th className="table-header px-4 py-2.5 text-left">Наименование</th>
-                    <th className="table-header px-4 py-2.5 text-right">Кол-во</th>
-                    <th className="table-header px-4 py-2.5 text-left">Ед.</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item, index) => (
-                    <tr key={item.id} className="border-b last:border-0">
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{index + 1}</td>
-                      <td className="px-4 py-3 font-medium">{item.material_name ?? item.materials?.name ?? '—'}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{item.quantity}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{item.unit}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
 
         {quotes.length > 0 && (
           <div className="card-panel">
@@ -955,6 +756,38 @@ export default function RfqDetail() {
             </div>
           </div>
         )}
+
+        <div className="card-panel">
+          <div className="px-5 pt-5 pb-0">
+            <h3 className="section-title">Позиции запроса</h3>
+          </div>
+          <div className="p-5">
+            {items.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">Нет позиций</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30">
+                    <th className="table-header px-4 py-2.5 text-left">№</th>
+                    <th className="table-header px-4 py-2.5 text-left">Наименование</th>
+                    <th className="table-header px-4 py-2.5 text-right">Кол-во</th>
+                    <th className="table-header px-4 py-2.5 text-left">Ед.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, index) => (
+                    <tr key={item.id} className="border-b last:border-0">
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{index + 1}</td>
+                      <td className="px-4 py-3 font-medium">{item.material_name ?? item.materials?.name ?? '—'}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{item.quantity}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{item.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   );

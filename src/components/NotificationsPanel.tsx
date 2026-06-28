@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, CheckCheck } from 'lucide-react';
@@ -18,7 +18,7 @@ export function NotificationsPanel() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
 
-  const { data: notifications = [], isLoading, error } = useQuery({
+  const { data: notifications = [], isLoading, error, refetch } = useQuery({
     queryKey: ['notifications', user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
@@ -37,7 +37,36 @@ export function NotificationsPanel() {
       return (data ?? []) as Notification[];
     },
     enabled: !!user?.id,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15000,
   });
+
+  useEffect(() => {
+    if (!user?.id) {
+      return undefined;
+    }
+
+    const channel = supabase
+      .channel(`notifications:${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ['notifications', user.id] });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient, user?.id]);
+
+  useEffect(() => {
+    if (open && user?.id) {
+      void refetch();
+    }
+  }, [open, refetch, user?.id]);
 
   const unreadCount = notifications.filter((item) => !item.is_read).length;
 

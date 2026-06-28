@@ -2,7 +2,7 @@ import { DashboardLayout } from '@/components/DashboardLayout';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Timeline } from '@/components/Timeline';
 import { Button } from '@/components/ui/button';
-import { Truck, ArrowLeft, MapPin, User, Printer } from 'lucide-react';
+import { Truck, ArrowLeft, MapPin, User, Printer, PackageCheck, CheckCircle2 } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -52,33 +52,40 @@ export default function ShipmentDetail() {
       if (!shipment) {
         throw new Error('Отгрузка не загружена.');
       }
-      if (!isSupplierMode) {
-        throw new Error('Только поставщик может менять статус отгрузки.');
-      }
 
       let nextStatus: ShipmentStatus = shipment.status;
       const patch: Partial<ShipmentWithOrder> = {};
+      const order = shipment.orders;
 
-      if (shipment.status === 'planned' || shipment.status === 'ready') {
-        nextStatus = 'in_transit';
-        patch.shipped_at = new Date().toISOString();
-      } else if (shipment.status === 'in_transit') {
+      if (isSupplierMode) {
+        if (shipment.status === 'planned') {
+          nextStatus = 'ready';
+        } else if (shipment.status === 'ready') {
+          nextStatus = 'in_transit';
+          patch.shipped_at = new Date().toISOString();
+        } else {
+          throw new Error('Поставщик может только подготовить груз на складе и передать его водителю. Получение подтверждает покупатель.');
+        }
+      } else {
+        if (shipment.status !== 'in_transit') {
+          throw new Error('Покупатель может подтвердить получение только когда машина уже в пути.');
+        }
         nextStatus = 'delivered';
         patch.delivered_at = new Date().toISOString();
-      } else {
-        throw new Error('Для текущего статуса действие недоступно.');
       }
 
       const { error } = await supabase
         .from('shipments')
-        .update({ status: nextStatus, shipped_at: patch.shipped_at ?? shipment.shipped_at, delivered_at: patch.delivered_at ?? shipment.delivered_at })
+        .update({
+          status: nextStatus,
+          shipped_at: patch.shipped_at ?? shipment.shipped_at,
+          delivered_at: patch.delivered_at ?? shipment.delivered_at,
+        })
         .eq('id', shipment.id);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      const nextOrderStatus = nextStatus === 'delivered' ? 'received' : 'shipped';
+      const nextOrderStatus = nextStatus === 'ready' ? 'in_progress' : nextStatus === 'delivered' ? 'received' : 'shipped';
       const { error: orderStatusError } = await supabase
         .from('orders')
         .update({ status: nextOrderStatus })
@@ -88,19 +95,27 @@ export default function ShipmentDetail() {
         console.warn('Не удалось обновить статус заказа после изменения отгрузки:', orderStatusError.message);
       }
 
-      const order = shipment.orders;
-      const notificationPayload = {
-        type: 'shipment' as const,
-        title: nextStatus === 'delivered' ? 'Отгрузка доставлена' : 'Отгрузка отправлена',
-        body: `Отгрузка ${shipment.shipment_number ?? shipment.id.slice(0, 8)} по заказу ${order?.order_number ? `#${order.order_number}` : ''} теперь в статусе "${nextStatus === 'delivered' ? 'Доставлено' : 'В пути'}".`,
-        related_entity_id: shipment.id,
-        related_entity_type: 'shipment',
-      };
-
-      if (order?.created_by) {
-        await createNotificationsForUsers([order.created_by], notificationPayload);
-      } else if (order?.buyer_company_id) {
-        await createNotificationsForCompanyUsers([order.buyer_company_id], notificationPayload);
+      if (isSupplierMode) {
+        const notificationPayload = {
+          type: 'shipment' as const,
+          title: nextStatus === 'ready' ? 'Поставщик подготовил груз на складе' : 'Поставщик передал груз водителю',
+          body: `Отгрузка ${shipment.shipment_number ?? shipment.id.slice(0, 8)} по заказу ${order?.order_number ? `#${order.order_number}` : ''}: ${nextStatus === 'ready' ? 'груз готов к отправке' : 'машина выехала к покупателю'}.`,
+          related_entity_id: shipment.id,
+          related_entity_type: 'shipment',
+        };
+        if (order?.created_by) {
+          await createNotificationsForUsers([order.created_by], notificationPayload);
+        } else if (order?.buyer_company_id) {
+          await createNotificationsForCompanyUsers([order.buyer_company_id], notificationPayload);
+        }
+      } else if (shipment.supplier_company_id) {
+        await createNotificationsForCompanyUsers([shipment.supplier_company_id], {
+          type: 'shipment',
+          title: 'Покупатель подтвердил получение',
+          body: `Покупатель подтвердил получение отгрузки ${shipment.shipment_number ?? shipment.id.slice(0, 8)}.`,
+          related_entity_id: shipment.id,
+          related_entity_type: 'shipment',
+        });
       }
 
       return nextStatus;
@@ -119,7 +134,11 @@ export default function ShipmentDetail() {
       ]);
       toast({
         title: 'Статус отгрузки обновлён',
-        description: nextStatus === 'delivered' ? 'Покупатель получил уведомление о доставке.' : 'Покупатель получил уведомление об отправке.',
+        description: nextStatus === 'delivered'
+          ? 'Получение подтверждено покупателем.'
+          : nextStatus === 'ready'
+            ? 'Груз отмечен как готовый на складе.'
+            : 'Отгрузка передана водителю, покупатель получил уведомление.',
       });
     },
     onError: (error: Error) => {
@@ -138,14 +157,19 @@ export default function ShipmentDetail() {
   const statusOrder = ['planned', 'ready', 'in_transit', 'delivered'];
   const currentIdx = statusOrder.indexOf(shipment.status);
   const steps = [
-    { label: 'Запланировано', done: currentIdx >= 0, active: shipment.status === 'planned' },
-    { label: 'Готов', done: currentIdx >= 1, active: shipment.status === 'ready' },
-    { label: 'В пути', done: currentIdx >= 2, active: shipment.status === 'in_transit' },
-    { label: 'Доставлено', done: currentIdx >= 3, active: shipment.status === 'delivered' },
+    { label: 'Создана на складе', done: currentIdx >= 0, active: shipment.status === 'planned' },
+    { label: 'Груз готов', done: currentIdx >= 1, active: shipment.status === 'ready' },
+    { label: 'Машина в пути', done: currentIdx >= 2, active: shipment.status === 'in_transit' },
+    { label: 'Получено покупателем', done: currentIdx >= 3, active: shipment.status === 'delivered' },
   ];
-  const canAdvance = isSupplierMode && (shipment.status === 'planned' || shipment.status === 'ready' || shipment.status === 'in_transit');
-  const actionLabel =
-    shipment.status === 'in_transit' ? 'Подтвердить доставку' : 'Подтвердить отгрузку';
+  const canSupplierAdvance = isSupplierMode && (shipment.status === 'planned' || shipment.status === 'ready');
+  const canBuyerConfirmReceipt = !isSupplierMode && shipment.status === 'in_transit';
+  const canAdvance = canSupplierAdvance || canBuyerConfirmReceipt;
+  const actionLabel = shipment.status === 'planned'
+    ? 'Груз готов на складе'
+    : shipment.status === 'ready'
+      ? 'Передать водителю'
+      : 'Подтвердить получение';
   const backHref = isSupplierMode ? '/supplier/shipments' : `/buyer/orders/${shipment.order_id}`;
   const backLabel = isSupplierMode ? 'Все отгрузки' : 'К заказу';
   const printWaybill = () => {
@@ -190,19 +214,20 @@ export default function ShipmentDetail() {
             <div className="flex items-center gap-2">
               <StatusBadge status={shipment.status} />
               {isSupplierMode && (
-                <>
-                  <Button size="sm" variant="outline" className="text-xs h-8 gap-1" onClick={printWaybill}>
-                    <Printer className="h-3 w-3" /> Печать ТТН
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="text-xs h-8 gap-1"
-                    disabled={!canAdvance || advanceShipmentMutation.isPending}
-                    onClick={() => advanceShipmentMutation.mutate()}
-                  >
-                    <Truck className="h-3 w-3" /> {advanceShipmentMutation.isPending ? 'Сохранение…' : actionLabel}
-                  </Button>
-                </>
+                <Button size="sm" variant="outline" className="text-xs h-8 gap-1" onClick={printWaybill}>
+                  <Printer className="h-3 w-3" /> Скачать ТТН
+                </Button>
+              )}
+              {canAdvance && (
+                <Button
+                  size="sm"
+                  className="text-xs h-8 gap-1"
+                  disabled={advanceShipmentMutation.isPending}
+                  onClick={() => advanceShipmentMutation.mutate()}
+                >
+                  {canBuyerConfirmReceipt ? <CheckCircle2 className="h-3 w-3" /> : shipment.status === 'planned' ? <PackageCheck className="h-3 w-3" /> : <Truck className="h-3 w-3" />}
+                  {advanceShipmentMutation.isPending ? 'Сохранение…' : actionLabel}
+                </Button>
               )}
             </div>
           </div>
@@ -210,7 +235,8 @@ export default function ShipmentDetail() {
 
         {/* Timeline */}
         <div className="card-panel p-6">
-          <h3 className="section-title mb-6">Статус отгрузки</h3>
+          <h3 className="section-title mb-2">Статус отгрузки</h3>
+          <p className="mb-6 text-sm text-muted-foreground">Поставщик управляет складскими этапами и отправкой, покупатель подтверждает фактическое получение.</p>
           <Timeline steps={steps} />
         </div>
 

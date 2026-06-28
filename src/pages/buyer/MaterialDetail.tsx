@@ -145,7 +145,7 @@ export default function MaterialDetail() {
                         </div>
                         <Button asChild size="sm" variant={isBest ? 'default' : 'outline'} className="h-8 shrink-0 text-xs">
                           <Link to={`/buyer/rfq?materialId=${material.id}&supplierId=${o.supplier_company_id}`}>
-                            Запросить КП
+                            Запросить предложение
                           </Link>
                         </Button>
                       </div>

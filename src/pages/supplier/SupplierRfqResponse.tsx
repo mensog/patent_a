@@ -151,7 +151,7 @@ export default function SupplierRfqResponse() {
   const saveQuoteMutation = useMutation({
     mutationFn: async (status: QuoteStatus) => {
       if (!id || !companyId || !user?.id) {
-        throw new Error('Профиль поставщика не готов к созданию КП.');
+        throw new Error('Профиль поставщика не готов к созданию коммерческого предложения.');
       }
 
       const validRows = rows.filter((row) => Number(row.price) > 0);
@@ -194,7 +194,7 @@ export default function SupplierRfqResponse() {
           .single();
 
         if (insertError || !data) {
-          throw insertError ?? new Error('Не удалось создать КП.');
+          throw insertError ?? new Error('Не удалось создать коммерческое предложение.');
         }
 
         quoteId = data.id;
@@ -239,13 +239,13 @@ export default function SupplierRfqResponse() {
           .in('status', ['published', 'quoted']);
 
         if (rfqStatusError) {
-          console.warn('Не удалось обновить статус RFQ:', rfqStatusError.message);
+          console.warn('Не удалось обновить статус запроса на закупку:', rfqStatusError.message);
         }
 
         const notificationPayload = {
           type: 'quote' as const,
-          title: wasAlreadySent ? 'КП обновлено поставщиком' : 'Получено новое КП',
-          body: `${profile?.full_name ?? 'Поставщик'} отправил предложение по RFQ "${rfq?.title ?? 'запрос'}" на сумму ${formatCurrency(totals.totalAmount)}.`,
+          title: wasAlreadySent ? 'Коммерческое предложение обновлено поставщиком' : 'Получено новое коммерческое предложение',
+          body: `${profile?.full_name ?? 'Поставщик'} отправил коммерческое предложение по запросу на закупку "${rfq?.title ?? 'запрос'}" на сумму ${formatCurrency(totals.totalAmount)}.`,
           related_entity_id: id,
           related_entity_type: 'rfq',
         };
@@ -263,11 +263,11 @@ export default function SupplierRfqResponse() {
         queryClient.invalidateQueries({ queryKey: ['rfq-quotes', id] }),
         queryClient.invalidateQueries({ queryKey: ['supplier-rfq', id] }),
       ]);
-      toast({ title: status === 'sent' ? 'КП отправлено' : 'Черновик сохранён' });
+      toast({ title: status === 'sent' ? 'Коммерческое предложение отправлено покупателю' : 'Черновик сохранён' });
     },
     onError: (mutationError: Error) => {
       toast({
-        title: 'Не удалось сохранить КП',
+        title: 'Не удалось сохранить коммерческое предложение',
         description: mutationError.message,
         variant: 'destructive',
       });
@@ -285,7 +285,7 @@ export default function SupplierRfqResponse() {
   }
 
   if (rfqError || itemsError) {
-    return <DashboardLayout mode="supplier"><p className="py-16 text-center text-sm text-destructive">Не удалось загрузить RFQ.</p></DashboardLayout>;
+    return <DashboardLayout mode="supplier"><p className="py-16 text-center text-sm text-destructive">Не удалось загрузить запрос покупателя.</p></DashboardLayout>;
   }
 
   if (!rfq) {
@@ -304,7 +304,7 @@ export default function SupplierRfqResponse() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="page-title">{rfq.title}</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">Формирование КП к запросу</p>
+              <p className="mt-0.5 text-sm text-muted-foreground">Ответ на запрос покупателя: коммерческое предложение</p>
             </div>
             <div className="flex items-center gap-2">
               <StatusBadge status={rfq.status} />
@@ -343,19 +343,21 @@ export default function SupplierRfqResponse() {
           </div>
         )}
 
-        <div className="card-panel">
-          <div className="px-5 pt-5 pb-0 flex items-center justify-between">
+        <div className="card-panel overflow-hidden">
+          <div className="flex flex-col gap-4 border-b px-5 py-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h3 className="text-base font-semibold text-foreground">Коммерческое предложение</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">Заполните цены и сроки по позициям</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Заполните вашу цену, срок поставки и комментарии по каждой позиции запроса.
+              </p>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:w-[360px]">
               <div>
                 <Label className="text-xs text-muted-foreground">Действует до</Label>
                 <Input type="date" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} className="h-9 text-xs" />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Доставка, ₽</Label>
+                <Label className="text-xs text-muted-foreground">Стоимость доставки, ₽</Label>
                 <Input value={deliveryCost} onChange={(event) => setDeliveryCost(event.target.value)} className="h-9 text-xs" />
               </div>
             </div>
@@ -364,56 +366,67 @@ export default function SupplierRfqResponse() {
             {rows.length === 0 ? (
               <p className="py-4 text-center text-sm text-muted-foreground">Нет позиций</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="table-header px-4 py-2.5 text-left">Материал</th>
-                    <th className="table-header px-4 py-2.5 text-right">Запрошено</th>
-                    <th className="table-header px-4 py-2.5 text-right">Цена, ₽</th>
-                    <th className="table-header px-4 py-2.5 text-right">Срок, дн.</th>
-                    <th className="table-header px-4 py-2.5 text-right">Сумма</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const lineTotal = Number(row.price) > 0 ? Number(row.price) * row.quantity : 0;
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[920px] table-fixed text-sm">
+                  <colgroup>
+                    <col className="w-[43%]" />
+                    <col className="w-[13%]" />
+                    <col className="w-[15%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[17%]" />
+                  </colgroup>
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="table-header px-4 py-2.5 text-left">Материал</th>
+                      <th className="table-header px-4 py-2.5 text-right">Запрошено</th>
+                      <th className="table-header px-4 py-2.5 text-right">Ваша цена, ₽</th>
+                      <th className="table-header px-4 py-2.5 text-right">Срок, дн.</th>
+                      <th className="table-header px-4 py-2.5 text-right">Сумма</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const lineTotal = Number(row.price) > 0 ? Number(row.price) * row.quantity : 0;
 
-                    return (
-                      <tr key={row.rfqItemId} className="border-b last:border-0 align-top">
-                        <td className="px-4 py-3.5">
-                          <p className="font-medium">{row.materialName}</p>
-                          <Input
-                            value={row.comment}
-                            onChange={(event) => updateRow(row.rfqItemId, 'comment', event.target.value)}
-                            placeholder="Комментарий по позиции"
-                            className="mt-2 h-8 text-xs"
-                          />
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-medium tabular-nums">
-                          {row.quantity} {row.unit}
-                        </td>
-                        <td className="px-4 py-3.5 text-right">
-                          <Input
-                            value={row.price}
-                            onChange={(event) => updateRow(row.rfqItemId, 'price', event.target.value)}
-                            className="h-8 w-28 text-right text-xs"
-                          />
-                        </td>
-                        <td className="px-4 py-3.5 text-right">
-                          <Input
-                            value={row.leadTimeDays}
-                            onChange={(event) => updateRow(row.rfqItemId, 'leadTimeDays', event.target.value)}
-                            className="h-8 w-20 text-right text-xs"
-                          />
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-semibold tabular-nums">
-                          {formatCurrency(lineTotal)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                      return (
+                        <tr key={row.rfqItemId} className="border-b last:border-0 align-top">
+                          <td className="px-4 py-3.5">
+                            <p className="font-medium leading-snug">{row.materialName}</p>
+                            <Input
+                              value={row.comment}
+                              onChange={(event) => updateRow(row.rfqItemId, 'comment', event.target.value)}
+                              placeholder="Комментарий по позиции"
+                              className="mt-2 h-8 w-full text-xs"
+                            />
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-medium tabular-nums">
+                            {row.quantity} {row.unit}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <Input
+                              value={row.price}
+                              onChange={(event) => updateRow(row.rfqItemId, 'price', event.target.value)}
+                              placeholder="0"
+                              className="ml-auto h-9 w-full text-right text-sm tabular-nums"
+                            />
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <Input
+                              value={row.leadTimeDays}
+                              onChange={(event) => updateRow(row.rfqItemId, 'leadTimeDays', event.target.value)}
+                              placeholder="дни"
+                              className="ml-auto h-9 w-full text-right text-sm tabular-nums"
+                            />
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-semibold tabular-nums">
+                            {formatCurrency(lineTotal)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>
@@ -456,7 +469,7 @@ export default function SupplierRfqResponse() {
               disabled={saveQuoteMutation.isPending}
               onClick={() => saveQuoteMutation.mutate('sent')}
             >
-              <Send className="h-3.5 w-3.5" /> Отправить КП
+              <Send className="h-3.5 w-3.5" /> Отправить покупателю
             </Button>
           </div>
         </div>
